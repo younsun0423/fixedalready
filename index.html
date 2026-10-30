@@ -47,6 +47,7 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px;border-radius:8px;bord
 .tl{background:rgba(20,33,31,.85)!important;border:0!important;color:#fff!important;font-size:12px;padding:1px 4px!important;box-shadow:none!important;text-shadow:0 0 3px #000}
 .tl:before{display:none!important}
 #map:not(.z18) .tl{display:none}
+#map:not(.z19) .pl{display:none}
 .me{width:16px;height:16px;border-radius:50%;background:#2a8cff;border:3px solid #fff;box-shadow:0 0 6px #000}
 </style>
 </head>
@@ -88,9 +89,9 @@ const $=s=>document.querySelector(s);
 const map=L.map('map',{zoomControl:false,renderer:L.canvas({tolerance:14}),maxZoom:21}).setView([23.0,121.15],12);
 const nlsc=(l)=>`https://wmts.nlsc.gov.tw/wmts/${l}/default/GoogleMapsCompatible/{z}/{y}/{x}`;
 const bases=[
- ['國土測繪中心正射影像',L.tileLayer(nlsc('PHOTO2'),{maxNativeZoom:19,maxZoom:21,attribution:'© 內政部國土測繪中心'})],
- ['Esri 衛星影像',L.tileLayer('https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxNativeZoom:19,maxZoom:21,attribution:'© Esri'})],
- ['電子地圖',L.tileLayer(nlsc('EMAP'),{maxNativeZoom:19,maxZoom:21,attribution:'© 內政部國土測繪中心'})]
+ ['國土測繪中心正射影像',L.tileLayer(nlsc('PHOTO2'),{maxNativeZoom:19,maxZoom:21,updateWhenZooming:false,attribution:'© 內政部國土測繪中心'})],
+ ['Esri 衛星影像',L.tileLayer('https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxNativeZoom:19,maxZoom:21,updateWhenZooming:false,attribution:'© Esri'})],
+ ['電子地圖',L.tileLayer(nlsc('EMAP'),{maxNativeZoom:19,maxZoom:21,updateWhenZooming:false,attribution:'© 內政部國土測繪中心'})]
 ];
 let bi=0;bases[0][1].addTo(map);
 $('#base').onclick=()=>{map.removeLayer(bases[bi][1]);bi=(bi+1)%bases.length;bases[bi][1].addTo(map).bringToBack();toast(bases[bi][0])};
@@ -145,7 +146,7 @@ function build(list){
       it.layer.addTo(ptLayer);it.center=L.latLng(it.pts[0]);
       if(it.name)it.layer.eachLayer(m=>m.bindTooltip(it.name,{permanent:true,direction:'right',className:'tl',offset:[6,0]}));
     }else{
-      it.layer=L.polygon(it.polys,{...stP,interactive:false});it.center=it.layer.getBounds().getCenter();
+      it.layer=L.polygon(it.polys,{...stP,interactive:false,smoothFactor:2});it.bounds=it.layer.getBounds();it.center=it.bounds.getCenter();
     }
     if(it.kind==='p')it.layer.on('click',e=>{L.DomEvent.stopPropagation(e);select(it,false)});
     items.push(it);
@@ -155,25 +156,33 @@ function build(list){
   Object.keys(cnt).sort((a,b)=>a.localeCompare(b,'zh-Hant')).forEach(k=>s.add(new Option(`${k}（${cnt[k]} 筆）`,k)));
   if(cnt[old])s.value=old;
   applySec(false);
-  if(!s.value&&items.length){const b=L.featureGroup([parcelLayer,ptLayer]).getBounds();if(b.isValid())map.fitBounds(b,{padding:[30,30]})}
+  if(!s.value&&items.length){const b=allBounds();if(b&&b.isValid())map.fitBounds(b,{padding:[30,30]})}
   else if(s.value)applySec(true);
 }
+let curC=[];
+function allBounds(){let b=null;const add=x=>{b=b?b.extend(x):L.latLngBounds(x.getSouthWest?x.getSouthWest():x,x.getNorthEast?x.getNorthEast():x)};
+  items.forEach(it=>{if(it.kind==='c')add(it.bounds);else it.pts.forEach(q=>add(L.latLng(q)))});return b}
 function applySec(fit){
   const cur=$('#sec').value;parcelLayer.clearLayers();
-  items.forEach(it=>{if(it.kind==='c'&&(!cur||it.sec===cur))it.layer.addTo(parcelLayer)});
-  if(fit){const b=parcelLayer.getBounds();if(b.isValid())map.fitBounds(b,{padding:[30,30]})}
-  labels();
+  curC=items.filter(it=>it.kind==='c'&&(!cur||it.sec===cur));curC.forEach(it=>it.on=false);
+  if(fit&&curC.length){let b=null;curC.forEach(it=>{b=b?b.extend(it.bounds):L.latLngBounds(it.bounds.getSouthWest(),it.bounds.getNorthEast())});map.fitBounds(b,{padding:[30,30]})}
+  cull();labels();
 }
-$('#sec').onchange=()=>{applySec(true);$('#info').style.display='none';adj();sel=null;if($('#q').value.trim())$('#q').dispatchEvent(new Event('input'))};
+function cull(){
+  const v=map.getBounds().pad(.4);
+  for(const it of curC){const hit=v.intersects(it.bounds);
+    if(hit&&!it.on){parcelLayer.addLayer(it.layer);it.on=true}
+    else if(!hit&&it.on&&it!==sel){parcelLayer.removeLayer(it.layer);it.on=false}}
+}
 function labels(){
   const z=map.getZoom();$('#map').classList.toggle('z18',z>=18);
-  if(z<18)return;const b=map.getBounds();let n=0;
+  if(z<19)return;const b=map.getBounds();let n=0;
   for(const it of items){
     if(it.kind!=='c'||it.lab||!it.name||!b.contains(it.center))continue;
-    it.layer.bindTooltip(it.name,{permanent:true,direction:'center',className:'tl'});it.lab=1;if(++n>300)break;
+    it.layer.bindTooltip(it.name,{permanent:true,direction:'center',className:'tl pl'});it.lab=1;if(++n>150)break;
   }
 }
-map.on('moveend',labels);
+map.on('moveend',()=>{cull();labels()});
 
 /* ---------- 搜尋 ---------- */
 const res=$('#results');
