@@ -30,6 +30,10 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px;border-radius:8px;bord
 #info{position:absolute;z-index:1000;left:8px;right:8px;bottom:calc(env(safe-area-inset-bottom,0px) + 8px);max-width:560px;background:var(--panel);border:2px solid var(--line);border-radius:10px;padding:10px 12px;display:none;max-height:40vh;overflow:auto}
 #info h3{margin:0 0 4px;font-size:18px}
 #info .d{color:var(--acc);font-size:15px;margin-bottom:6px}
+#info .big{display:flex;flex-direction:column;gap:6px;margin:4px 0 10px}
+#info .cv{display:flex;align-items:baseline;justify-content:space-between;gap:10px;background:#0f1a18;border:2px solid var(--acc);border-radius:8px;padding:6px 12px}
+#info .cv small{color:var(--mute);font-size:15px;white-space:nowrap}
+#info .cv b{font-size:38px;line-height:1.2;letter-spacing:.5px;color:var(--acc);font-variant-numeric:tabular-nums;word-break:break-all}
 #info table{border-collapse:collapse;width:100%;font-size:13px}
 #info td{padding:3px 6px 3px 0;border-top:1px solid var(--line);vertical-align:top}
 #info td:first-child{color:var(--mute);white-space:nowrap}
@@ -78,7 +82,7 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px;border-radius:8px;bord
 
 <script>
 const $=s=>document.querySelector(s);
-const map=L.map('map',{zoomControl:false,preferCanvas:true,maxZoom:21}).setView([23.0,121.15],12);
+const map=L.map('map',{zoomControl:false,renderer:L.canvas({tolerance:14}),maxZoom:21}).setView([23.0,121.15],12);
 const nlsc=(l)=>`https://wmts.nlsc.gov.tw/wmts/${l}/default/GoogleMapsCompatible/{z}/{y}/{x}`;
 const bases=[
  ['國土測繪中心正射影像',L.tileLayer(nlsc('PHOTO2'),{maxNativeZoom:19,maxZoom:21,attribution:'© 內政部國土測繪中心'})],
@@ -138,9 +142,9 @@ function build(list){
       it.layer.addTo(ptLayer);it.center=L.latLng(it.pts[0]);
       if(it.name)it.layer.eachLayer(m=>m.bindTooltip(it.name,{permanent:true,direction:'right',className:'tl',offset:[6,0]}));
     }else{
-      it.layer=L.polygon(it.polys,{...stP});it.center=it.layer.getBounds().getCenter();
+      it.layer=L.polygon(it.polys,{...stP,interactive:false});it.center=it.layer.getBounds().getCenter();
     }
-    it.layer.on('click',e=>{L.DomEvent.stopPropagation(e);select(it,false)});
+    if(it.kind==='p')it.layer.on('click',e=>{L.DomEvent.stopPropagation(e);select(it,false)});
     items.push(it);
   });
   const cnt={};items.forEach(i=>{if(i.kind==='c')cnt[i.sec]=(cnt[i.sec]||0)+1});
@@ -194,6 +198,15 @@ $('#q').addEventListener('input',e=>{
 });
 $('#q').addEventListener('keydown',e=>{if(e.key==='Enter'){const r=search(e.target.value);if(r[0]){select(r[0],true);res.style.display='none';e.target.blur()}}});
 
+function tm2(lat,lng){
+  const a=6378137,f=1/298.257222101,e2=2*f-f*f,ep=e2/(1-e2),k0=.9999,r=Math.PI/180;
+  const p=lat*r,l=(lng-121)*r,sn=Math.sin(p),cs=Math.cos(p),tn=Math.tan(p);
+  const N=a/Math.sqrt(1-e2*sn*sn),T=tn*tn,C=ep*cs*cs,A=l*cs;
+  const M=a*((1-e2/4-3*e2*e2/64-5*e2**3/256)*p-(3*e2/8+3*e2*e2/32+45*e2**3/1024)*Math.sin(2*p)+(15*e2*e2/256+45*e2**3/1024)*Math.sin(4*p)-(35*e2**3/3072)*Math.sin(6*p));
+  const x=k0*N*(A+(1-T+C)*A**3/6+(5-18*T+T*T+72*C-58*ep)*A**5/120)+250000;
+  const y=k0*(M+N*tn*(A*A/2+(5-T+9*C+4*C*C)*A**4/24+(61-58*T+T*T+600*C-330*ep)*A**6/720));
+  return{n:y.toFixed(3),e:x.toFixed(3)};
+}
 function select(it,zoom){
   if(sel&&sel.kind==='c')sel.layer.setStyle(stP);
   sel=it;
@@ -202,9 +215,17 @@ function select(it,zoom){
   const ib=$('#ib');ib.innerHTML='';
   const h=document.createElement('h3');h.textContent=(it.kind==='p'?'圖根點 ':(it.sec?it.sec+' ':'')+'地號 ')+(it.name||'');ib.appendChild(h);
   const d=document.createElement('div');d.className='d';d.id='dist';ib.appendChild(d);
-  const rows=Object.entries(it.a);
+  const isC=k=>/座標|坐標|^[nexy]$|^[ne][\s_]?(coord)|^(北|東|縱|橫)|twd97|tm2|northing|easting/i.test(k.trim());
+  let cr=Object.entries(it.a).filter(([k,v])=>isC(k)&&v);
+  const rows=Object.entries(it.a).filter(([k])=>!isC(k)||!it.a[k]);
+  if(it.kind==='p'){
+  if(!cr.length){const t=tm2(it.center.lat,it.center.lng);cr=[['N 縱坐標',t.n],['E 橫坐標',t.e]]}
+  const bg=document.createElement('div');bg.className='big';
+  cr.forEach(([k,v])=>{const c=document.createElement('div');c.className='cv';c.innerHTML='<small></small><b></b>';
+    c.firstChild.textContent=k;c.lastChild.textContent=v;bg.appendChild(c)});
+  ib.appendChild(bg);}
   const lat=it.center.lat.toFixed(7),lng=it.center.lng.toFixed(7);
-  rows.push(['座標 (WGS84)',`${lat}, ${lng}`]);rows.push(['來源檔案',it.file]);
+  if(it.kind==='p')rows.push(['座標 (WGS84)',`${lat}, ${lng}`]);rows.push(['來源檔案',it.file]);
   const t=document.createElement('table');
   rows.forEach(([k,v])=>{const tr=t.insertRow();tr.insertCell().textContent=k;tr.insertCell().textContent=v});
   ib.appendChild(t);$('#info').style.display='block';dist();
