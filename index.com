@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>地籍・圖根點現場查詢</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+:root{--bg:#14211f;--panel:#1c2e2b;--line:#34504b;--ink:#eef3f1;--mute:#9db5af;--acc:#ffd23f;--pt:#ff5a4d}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;background:var(--bg);color:var(--ink)}
+#map{position:absolute;inset:0;background:#222}
+.bar{position:absolute;z-index:1000;left:0;right:0;top:0;padding:calc(env(safe-area-inset-top,0px) + 8px) 8px 0;pointer-events:none}
+.bar>*{pointer-events:auto}
+.row{display:flex;gap:6px;max-width:560px}
+input[type=search]{flex:1;min-width:0;font-size:16px;padding:11px 12px;border-radius:8px;border:2px solid var(--line);background:var(--panel);color:var(--ink)}
+input[type=search]:focus,button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+button,.btn{font:inherit;font-size:14px;padding:10px 12px;border-radius:8px;border:2px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer;white-space:nowrap}
+button.on{background:var(--acc);color:#111;border-color:var(--acc)}
+select{flex:1;min-width:0;font-size:15px;padding:9px 10px;border-radius:8px;border:2px solid var(--line);background:var(--panel);color:var(--ink)}
+#results{max-width:560px;margin-top:6px;background:var(--panel);border:2px solid var(--line);border-radius:8px;max-height:45vh;overflow:auto;display:none}
+#results div{padding:10px 12px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:8px;cursor:pointer}
+#results div:last-child{border:0}
+#results div:hover{background:#27403c}
+.tag{font-size:12px;color:#111;background:var(--acc);border-radius:4px;padding:1px 6px;align-self:center}
+.tag.p{background:var(--pt);color:#fff}
+.side{position:absolute;z-index:1000;right:8px;top:calc(env(safe-area-inset-top,0px) + 64px);display:flex;flex-direction:column;gap:6px}
+.side button{width:44px;height:44px;padding:0;font-size:20px}
+#info{position:absolute;z-index:1000;left:8px;right:8px;bottom:calc(env(safe-area-inset-bottom,0px) + 8px);max-width:560px;background:var(--panel);border:2px solid var(--line);border-radius:10px;padding:10px 12px;display:none;max-height:40vh;overflow:auto}
+#info h3{margin:0 0 4px;font-size:18px}
+#info .d{color:var(--acc);font-size:15px;margin-bottom:6px}
+#info table{border-collapse:collapse;width:100%;font-size:13px}
+#info td{padding:3px 6px 3px 0;border-top:1px solid var(--line);vertical-align:top}
+#info td:first-child{color:var(--mute);white-space:nowrap}
+#x{position:absolute;right:6px;top:6px;padding:2px 9px}
+#panel{position:absolute;z-index:1001;inset:0;background:rgba(10,18,16,.85);display:none;align-items:center;justify-content:center;padding:16px}
+#panel .box{background:var(--panel);border:2px solid var(--line);border-radius:12px;padding:16px;max-width:440px;width:100%}
+#panel h2{margin:0 0 8px;font-size:18px}
+#panel p{color:var(--mute);font-size:14px;margin:6px 0}
+#files div{font-size:14px;padding:4px 0;display:flex;justify-content:space-between}
+.tl{background:rgba(20,33,31,.85)!important;border:0!important;color:#fff!important;font-size:12px;padding:1px 4px!important;box-shadow:none!important;text-shadow:0 0 3px #000}
+.tl:before{display:none!important}
+#map:not(.z18) .tl{display:none}
+.me{width:16px;height:16px;border-radius:50%;background:#2a8cff;border:3px solid #fff;box-shadow:0 0 6px #000}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div class="bar">
+  <div class="row">
+    <input id="q" type="search" placeholder="搜尋地號或圖根點，例如 123-4" autocomplete="off">
+    <button id="imp">匯入</button>
+  </div>
+  <div class="row" style="margin-top:6px"><select id="sec" aria-label="地段"><option value="">全部地段</option></select><button id="ren">✎ 改名</button></div>
+  <div id="results"></div>
+</div>
+
+<div class="side">
+  <button id="loc" title="我的位置" aria-label="我的位置">◎</button>
+  <button id="base" title="切換底圖" aria-label="切換底圖">🛰</button>
+  <button id="zin" aria-label="放大">＋</button>
+  <button id="zout" aria-label="縮小">－</button>
+</div>
+
+<div id="info"><button id="x" aria-label="關閉">✕</button><div id="ib"></div></div>
+
+<div id="panel"><div class="box">
+  <h2>匯入 KML 檔</h2>
+  <p>可一次選多個檔（也可選資料包 .json）。地段取自屬性欄位（如「地段」「段名」），沒有的話取 KML 資料夾名稱，再沒有就用檔名。含「點」的歸為圖根點，含「面／線」的歸為地籍圖。資料只存在這支手機／電腦的瀏覽器裡，不會上傳。</p>
+  <input id="file" type="file" accept=".kml,.xml,.json,application/vnd.google-earth.kml+xml" multiple hidden>
+  <div style="display:flex;gap:6px;margin:10px 0;flex-wrap:wrap"><button id="pick" class="on">選擇檔案</button><button id="close">關閉</button></div>
+  <p>在電腦匯入後，可下載成「含資料的網頁」放上網路，手機直接開網址就有全部資料；或下載資料包，傳到手機再匯入。</p>
+  <div style="display:flex;gap:6px;margin:10px 0;flex-wrap:wrap"><button id="expP">下載含資料的網頁</button><button id="expJ">下載資料包</button><button id="clr">清除本機資料</button></div>
+  <div id="files"></div>
+  <p id="msg"></p>
+</div></div>
+
+<script>
+const $=s=>document.querySelector(s);
+const map=L.map('map',{zoomControl:false,preferCanvas:true,maxZoom:21}).setView([23.0,121.15],12);
+const nlsc=(l)=>`https://wmts.nlsc.gov.tw/wmts/${l}/default/GoogleMapsCompatible/{z}/{y}/{x}`;
+const bases=[
+ ['國土測繪中心正射影像',L.tileLayer(nlsc('PHOTO2'),{maxNativeZoom:19,maxZoom:21,attribution:'© 內政部國土測繪中心'})],
+ ['Esri 衛星影像',L.tileLayer('https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxNativeZoom:19,maxZoom:21,attribution:'© Esri'})],
+ ['電子地圖',L.tileLayer(nlsc('EMAP'),{maxNativeZoom:19,maxZoom:21,attribution:'© 內政部國土測繪中心'})]
+];
+let bi=0;bases[0][1].addTo(map);
+$('#base').onclick=()=>{map.removeLayer(bases[bi][1]);bi=(bi+1)%bases.length;bases[bi][1].addTo(map).bringToBack();toast(bases[bi][0])};
+$('#zin').onclick=()=>map.zoomIn();$('#zout').onclick=()=>map.zoomOut();
+function toast(t){const m=$('#msg');m.textContent=t;}
+
+/* ---------- 資料 ---------- */
+const parcelLayer=L.featureGroup().addTo(map), ptLayer=L.featureGroup().addTo(map);
+let items=[], sel=null, files={};
+const stP={color:'#ffd23f',weight:2,fillColor:'#ffd23f',fillOpacity:.04};
+const stSel={color:'#ff5a4d',weight:4,fillColor:'#ff5a4d',fillOpacity:.3};
+const norm=s=>String(s).toLowerCase().replace(/\s+/g,'').replace(/\d+/g,m=>String(+m));
+
+function coords(t){return t.trim().split(/\s+/).map(c=>{const a=c.split(',');return [+a[1],+a[0]]}).filter(c=>!isNaN(c[0])&&!isNaN(c[1]))}
+function attrs(pm){
+  const o={};
+  pm.querySelectorAll('ExtendedData Data').forEach(d=>{const v=d.querySelector('value');o[d.getAttribute('name')]=v?v.textContent:''});
+  pm.querySelectorAll('ExtendedData SimpleData').forEach(d=>o[d.getAttribute('name')]=d.textContent);
+  const de=pm.querySelector(':scope > description');
+  if(de){const h=new DOMParser().parseFromString(de.textContent,'text/html');
+    const rows=[...h.querySelectorAll('tr')];
+    if(rows.length){rows.forEach(r=>{const c=r.querySelectorAll('th,td');if(c.length>=2)o[c[0].textContent.trim()]=c[1].textContent.trim()})}
+    else{const t=h.body.textContent.trim();if(t)o['說明']=t}}
+  return o;
+}
+function parseKml(text,fname){
+  const doc=new DOMParser().parseFromString(text,'text/xml');
+  if(doc.querySelector('parsererror'))throw new Error('不是有效的 KML');
+  const out=[];
+  doc.querySelectorAll('Placemark').forEach(pm=>{
+    const n=pm.querySelector(':scope > name');const name=n?n.textContent.trim():'';
+    const a=attrs(pm);
+    let sec='';for(const k in a){if(/地段|段名|小段|^段$|sect/i.test(k)&&a[k]){sec=a[k].trim();break}}
+    if(!sec){const f=pm.closest('Folder'),fn=f&&f.querySelector(':scope > name');if(fn)sec=fn.textContent.trim()}
+    if(!sec)sec=fname.replace(/\.[^.]+$/,'');
+    const pts=[],polys=[];
+    pm.querySelectorAll('Point coordinates').forEach(c=>{const p=coords(c.textContent);if(p[0])pts.push(p[0])});
+    pm.querySelectorAll('Polygon').forEach(pg=>{
+      const rings=[...pg.querySelectorAll('coordinates')].map(c=>coords(c.textContent));polys.push(rings)});
+    pm.querySelectorAll('LineString').forEach(l=>{if(!l.closest('Polygon'))polys.push([coords(l.querySelector('coordinates').textContent)])});
+    if(pts.length)out.push({kind:'p',name,a,pts,sec,file:fname});
+    else if(polys.length)out.push({kind:'c',name,a,polys,sec,file:fname});
+  });
+  return out;
+}
+function build(list){
+  items=[];parcelLayer.clearLayers();ptLayer.clearLayers();sel=null;
+  list.forEach(it=>{
+    it.key=norm(it.name);it.nsec=norm(it.sec||'');it.hay=norm(Object.values(it.a).join(' '));
+    if(it.kind==='p'){
+      it.layer=L.featureGroup(it.pts.map(p=>L.circleMarker(p,{radius:7,color:'#fff',weight:2,fillColor:'#ff5a4d',fillOpacity:1})));
+      it.layer.addTo(ptLayer);it.center=L.latLng(it.pts[0]);
+      if(it.name)it.layer.eachLayer(m=>m.bindTooltip(it.name,{permanent:true,direction:'right',className:'tl',offset:[6,0]}));
+    }else{
+      it.layer=L.polygon(it.polys,{...stP});it.center=it.layer.getBounds().getCenter();
+    }
+    it.layer.on('click',e=>{L.DomEvent.stopPropagation(e);select(it,false)});
+    items.push(it);
+  });
+  const cnt={};items.forEach(i=>{if(i.kind==='c')cnt[i.sec]=(cnt[i.sec]||0)+1});
+  const s=$('#sec'),old=s.value;s.innerHTML='<option value="">全部地段</option>';
+  Object.keys(cnt).sort((a,b)=>a.localeCompare(b,'zh-Hant')).forEach(k=>s.add(new Option(`${k}（${cnt[k]} 筆）`,k)));
+  if(cnt[old])s.value=old;
+  applySec(false);
+  if(!s.value&&items.length){const b=L.featureGroup([parcelLayer,ptLayer]).getBounds();if(b.isValid())map.fitBounds(b,{padding:[30,30]})}
+  else if(s.value)applySec(true);
+}
+function applySec(fit){
+  const cur=$('#sec').value;parcelLayer.clearLayers();
+  items.forEach(it=>{if(it.kind==='c'&&(!cur||it.sec===cur))it.layer.addTo(parcelLayer)});
+  if(fit){const b=parcelLayer.getBounds();if(b.isValid())map.fitBounds(b,{padding:[30,30]})}
+  labels();
+}
+$('#sec').onchange=()=>{applySec(true);$('#info').style.display='none';sel=null;if($('#q').value.trim())$('#q').dispatchEvent(new Event('input'))};
+function labels(){
+  const z=map.getZoom();$('#map').classList.toggle('z18',z>=18);
+  if(z<18)return;const b=map.getBounds();let n=0;
+  for(const it of items){
+    if(it.kind!=='c'||it.lab||!it.name||!b.contains(it.center))continue;
+    it.layer.bindTooltip(it.name,{permanent:true,direction:'center',className:'tl'});it.lab=1;if(++n>300)break;
+  }
+}
+map.on('moveend',labels);
+
+/* ---------- 搜尋 ---------- */
+const res=$('#results');
+function search(q){
+  const tk=q.trim().split(/\s+/).map(norm).filter(Boolean);if(!tk.length)return[];
+  const cur=$('#sec').value,last=tk[tk.length-1],r=[];
+  for(const it of items){
+    if(it.kind==='c'&&cur&&it.sec!==cur)continue;
+    const full=it.nsec+' '+it.key+' '+it.hay;
+    if(!tk.every(t=>full.includes(t)))continue;
+    let s=3;if(it.key===last)s=0;else if(it.key.startsWith(last))s=1;else if(it.key.includes(last))s=2;
+    r.push([s,it]);
+  }
+  return r.sort((a,b)=>a[0]-b[0]||a[1].key.length-b[1].key.length).slice(0,40).map(x=>x[1]);
+}
+$('#q').addEventListener('input',e=>{
+  const v=e.target.value;if(!v.trim()){res.style.display='none';return}
+  const r=search(v);res.innerHTML='';
+  if(!items.length){res.innerHTML='<div>尚未匯入資料，請按右上「匯入」</div>'}
+  else if(!r.length){res.innerHTML='<div>找不到符合的地號或圖根點</div>'}
+  else r.forEach(it=>{const d=document.createElement('div');
+    d.innerHTML=`<span></span><span class="tag ${it.kind}">${it.kind==='p'?'圖根':'地號'}</span>`;
+    d.firstChild.textContent=(it.kind==='c'&&it.sec?it.sec+'  ':'')+(it.name||'(無名稱)');d.onclick=()=>{select(it,true);res.style.display='none';$('#q').blur()};res.appendChild(d)});
+  res.style.display='block';
+});
+$('#q').addEventListener('keydown',e=>{if(e.key==='Enter'){const r=search(e.target.value);if(r[0]){select(r[0],true);res.style.display='none';e.target.blur()}}});
+
+function select(it,zoom){
+  if(sel&&sel.kind==='c')sel.layer.setStyle(stP);
+  sel=it;
+  if(it.kind==='c'){it.layer.setStyle(stSel);it.layer.bringToFront()}
+  if(zoom){it.kind==='c'?map.fitBounds(it.layer.getBounds(),{padding:[60,60],maxZoom:20}):map.setView(it.center,Math.max(map.getZoom(),19))}
+  const ib=$('#ib');ib.innerHTML='';
+  const h=document.createElement('h3');h.textContent=(it.kind==='p'?'圖根點 ':(it.sec?it.sec+' ':'')+'地號 ')+(it.name||'');ib.appendChild(h);
+  const d=document.createElement('div');d.className='d';d.id='dist';ib.appendChild(d);
+  const rows=Object.entries(it.a);
+  const lat=it.center.lat.toFixed(7),lng=it.center.lng.toFixed(7);
+  rows.push(['座標 (WGS84)',`${lat}, ${lng}`]);rows.push(['來源檔案',it.file]);
+  const t=document.createElement('table');
+  rows.forEach(([k,v])=>{const tr=t.insertRow();tr.insertCell().textContent=k;tr.insertCell().textContent=v});
+  ib.appendChild(t);$('#info').style.display='block';dist();
+}
+$('#x').onclick=()=>{$('#info').style.display='none';if(sel&&sel.kind==='c')sel.layer.setStyle(stP);sel=null};
+map.on('click',()=>{res.style.display='none'});
+
+/* ---------- 定位 ---------- */
+let wid=null,meM=null,meC=null,last=null,first=true;
+function dist(){
+  const e=$('#dist');if(!e||!sel)return;
+  if(!last){e.textContent='開啟定位後顯示與現場的距離';return}
+  const m=map.distance(last,sel.center);
+  e.textContent='距離目前位置約 '+(m>=1000?(m/1000).toFixed(2)+' 公里':m.toFixed(1)+' 公尺');
+}
+$('#loc').onclick=()=>{
+  if(!navigator.geolocation){alert('此瀏覽器不支援定位');return}
+  if(wid!==null){ if(last)map.setView(last,Math.max(map.getZoom(),19));return}
+  $('#loc').classList.add('on');
+  wid=navigator.geolocation.watchPosition(p=>{
+    last=L.latLng(p.coords.latitude,p.coords.longitude);
+    if(!meM){meM=L.marker(last,{icon:L.divIcon({className:'',html:'<div class="me"></div>',iconSize:[16,16]}),interactive:false,zIndexOffset:1000}).addTo(map);
+      meC=L.circle(last,{radius:p.coords.accuracy,color:'#2a8cff',weight:1,fillOpacity:.12,interactive:false}).addTo(map)}
+    else{meM.setLatLng(last);meC.setLatLng(last).setRadius(p.coords.accuracy)}
+    if(first){first=false;if(!sel)map.setView(last,Math.max(map.getZoom(),18))}
+    dist();
+  },err=>{alert('無法取得位置：'+err.message+'\n（需使用 https 網址並允許定位權限）');navigator.geolocation.clearWatch(wid);wid=null;$('#loc').classList.remove('on')},
+  {enableHighAccuracy:true,maximumAge:2000,timeout:20000});
+};
+
+/* ---------- 匯入與儲存 ---------- */
+const DB='kmlviewer';
+const idb=()=>new Promise((ok,no)=>{const r=indexedDB.open(DB,1);r.onupgradeneeded=()=>r.result.createObjectStore('f');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});
+async function dbAll(){try{const d=await idb();return await new Promise(ok=>{const o={},c=d.transaction('f').objectStore('f').openCursor();c.onsuccess=()=>{const x=c.result;if(x){o[x.key]=x.value;x.continue()}else ok(o)};c.onerror=()=>ok({})})}catch(e){return{}}}
+async function dbSet(k,v){try{const d=await idb();d.transaction('f','readwrite').objectStore('f').put(v,k)}catch(e){}}
+async function dbClear(){try{const d=await idb();d.transaction('f','readwrite').objectStore('f').clear()}catch(e){}}
+
+let ren={};
+function refresh(){
+  let all=[];const box=$('#files');box.innerHTML='';
+  try{ren=JSON.parse(files.__renames||'{}')}catch(e){ren={}}
+  for(const [n,t] of Object.entries(files)){
+    if(n.startsWith('__'))continue;
+    try{const l=parseKml(t,n);l.forEach(x=>{x.sec0=x.sec;x.sec=ren[x.sec]||x.sec});all=all.concat(l);
+      const d=document.createElement('div');const c=l.filter(x=>x.kind==='c').length,p=l.filter(x=>x.kind==='p').length;
+      d.textContent=`${n}：地籍 ${c}、圖根 ${p}`;box.appendChild(d)}
+    catch(e){const d=document.createElement('div');d.textContent=`${n}：${e.message}`;box.appendChild(d)}
+  }
+  build(all);
+}
+$('#ren').onclick=()=>{
+  const cur=$('#sec').value;if(!cur){alert('請先在下拉選單選一個要改名的地段');return}
+  const nn=prompt(`將地段「${cur}」改名為：\n（輸入已存在的地段名稱會合併；留空則還原成原名）`,cur);
+  if(nn===null)return;const v=nn.trim();
+  items.forEach(it=>{if(it.kind==='c'&&it.sec===cur){if(!v||v===it.sec0)delete ren[it.sec0];else ren[it.sec0]=v}});
+  files.__renames=JSON.stringify(ren);dbSet('__renames',files.__renames);
+  refresh();
+  const keep=v||items.find(i=>i.kind==='c'&&i.sec0===cur)?.sec||'';
+  if([...$('#sec').options].some(o=>o.value===keep))$('#sec').value=keep;
+  applySec(true);toast(`地段已改名為「${keep||cur}」`);
+};
+$('#imp').onclick=()=>$('#panel').style.display='flex';
+$('#close').onclick=()=>$('#panel').style.display='none';
+$('#pick').onclick=()=>$('#file').click();
+$('#file').onchange=async e=>{
+  for(const f of e.target.files){const t=await f.text();
+    if(/\.json$/i.test(f.name)){try{const o=JSON.parse(t);for(const k in o){files[k]=o[k];dbSet(k,o[k])}}catch(x){toast('資料包格式錯誤')}}
+    else{files[f.name]=t;dbSet(f.name,t)}}
+  e.target.value='';refresh();toast(`已載入共 ${items.length} 筆`);
+};
+$('#clr').onclick=async()=>{if(confirm('清除已匯入的所有資料？')){files={};await dbClear();refresh();toast('已清除')}};
+function dl(n,t,ty){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:ty}));a.download=n;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),5000)}
+$('#expJ').onclick=()=>{if(!Object.keys(files).length)return toast('還沒有資料可匯出');dl('地籍圖根資料包.json',JSON.stringify(files),'application/json')};
+$('#expP').onclick=()=>{
+  if(!Object.keys(files).length)return toast('還沒有資料可匯出');
+  const c=document.documentElement.cloneNode(true),m=c.querySelector('#map');
+  m.innerHTML='';['class','style','tabindex'].forEach(x=>m.removeAttribute(x));
+  c.querySelectorAll('#preload').forEach(e=>e.remove());
+  ['#results','#files','#ib'].forEach(x=>c.querySelector(x).innerHTML='');
+  ['#results','#info','#panel'].forEach(x=>c.querySelector(x).removeAttribute('style'));
+  c.querySelector('#sec').innerHTML='<option value="">全部地段</option>';
+  c.querySelector('#msg').textContent='';c.querySelector('#q').removeAttribute('value');
+  const sc=document.createElement('script');sc.id='preload';sc.type='application/json';
+  sc.textContent=JSON.stringify(files).replace(/</g,'\\u003c');
+  const bd=c.querySelector('body');bd.insertBefore(sc,bd.querySelector('script'));
+  dl('地籍查詢-含資料.html','<!DOCTYPE html>\n'+c.outerHTML,'text/html');
+};
+(async()=>{
+  let emb={};const pe=document.getElementById('preload');
+  if(pe){try{emb=JSON.parse(pe.textContent)}catch(e){}}
+  files={...emb,...await dbAll()};
+  if(Object.keys(files).length)refresh();else $('#panel').style.display='flex';
+})();
+</script>
+</body>
+</html>
