@@ -75,10 +75,10 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px;border-radius:8px;bord
 
 <div id="panel"><div class="box">
   <h2>匯入 KML 檔</h2>
-  <p>可一次選多個檔。地段取自屬性欄位（如「地段」「段名」），沒有的話取 KML 資料夾名稱，再沒有就用檔名。含「點」的歸為圖根點，含「面／線」的歸為地籍圖。資料只存在這支手機／電腦的瀏覽器裡，不會上傳。</p>
+  <p>可一次選多個檔，也可直接選 .zip 資料包。地段取自屬性欄位（如「地段」「段名」），沒有的話取 KML 資料夾名稱，再沒有就用檔名。含「點」的歸為圖根點，含「面／線」的歸為地籍圖。資料只存在這支手機／電腦的瀏覽器裡，不會上傳。</p>
   <input id="file" type="file" multiple hidden>
   <div style="display:flex;gap:6px;margin:10px 0;flex-wrap:wrap"><button id="pick" class="on">選擇檔案</button><button id="close">關閉</button></div>
-  <div style="display:flex;gap:6px;margin:10px 0;flex-wrap:wrap"><button id="clr">清除本機資料</button></div>
+  <div style="display:flex;gap:6px;margin:10px 0;flex-wrap:wrap"><button id="pack">打包成單一檔案</button><button id="clr">清除本機資料</button></div>
   <div id="files"></div>
   <p id="msg"></p>
 </div></div>
@@ -294,14 +294,45 @@ $('#ren').onclick=()=>{
   if([...$('#sec').options].some(o=>o.value===keep))$('#sec').value=keep;
   applySec(true);toast(`地段已改名為「${keep||cur}」`);
 };
+$('#pack').onclick=()=>{
+  if(!Object.keys(files).length){toast('還沒有資料可以打包');return}
+  const d=new Date(),z=n=>String(n).padStart(2,'0');
+  const name=`地籍資料包_${d.getFullYear()}${z(d.getMonth()+1)}${z(d.getDate())}.txt`;
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({bundle:1,files})],{type:'text/plain'}));
+  a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+  toast(`已打包 ${Object.keys(files).filter(k=>!k.startsWith('__')).length} 個檔案：${name}`);
+};
 $('#imp').onclick=()=>$('#panel').style.display='flex';
 $('#close').onclick=()=>$('#panel').style.display='none';
 $('#pick').onclick=()=>$('#file').click();
+async function unzip(file){
+  const b=new Uint8Array(await file.arrayBuffer()),dv=new DataView(b.buffer);
+  let e=b.length-22;while(e>=0&&dv.getUint32(e,true)!==0x06054b50)e--;
+  if(e<0)throw new Error('不是有效的 zip');
+  const n=dv.getUint16(e+10,true);let p=dv.getUint32(e+16,true);const out=[];
+  for(let i=0;i<n;i++){
+    const m=dv.getUint16(p+10,true),cs=dv.getUint32(p+20,true),nl=dv.getUint16(p+28,true),xl=dv.getUint16(p+30,true),cl=dv.getUint16(p+32,true),lo=dv.getUint32(p+42,true);
+    const name=new TextDecoder().decode(b.subarray(p+46,p+46+nl));p+=46+nl+xl+cl;
+    const base=name.split('/').pop();
+    if(!base||base.startsWith('.')||!/\.(kml|xml|txt|json)$/i.test(base))continue;
+    const ds=lo+30+dv.getUint16(lo+26,true)+dv.getUint16(lo+28,true);let d=b.subarray(ds,ds+cs);
+    if(m===8)d=new Uint8Array(await new Response(new Blob([d]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+    else if(m!==0)throw new Error('不支援的壓縮方式');
+    out.push({name:base,text:new TextDecoder().decode(d)});
+  }
+  return out;
+}
 $('#file').onchange=async e=>{
-  for(const f of e.target.files){const t=await f.text();
-    if(/\.json$/i.test(f.name)){try{const o=JSON.parse(t);for(const k in o){files[k]=o[k];dbSet(k,o[k])}}catch(x){toast('資料包格式錯誤')}}
-    else{files[f.name]=t;dbSet(f.name,t)}}
-  e.target.value='';refresh();toast(`已載入共 ${items.length} 筆`);
+  const list=[...e.target.files];e.target.value='';
+  for(const f of list){
+    let ents;
+    if(/\.zip$/i.test(f.name)){try{ents=await unzip(f)}catch(x){toast('壓縮檔讀取失敗：'+x.message);continue}}
+    else ents=[{name:f.name,text:await f.text()}];
+    for(const en of ents){const t=en.text;
+      if(t.trim()[0]==='{'){try{const o=JSON.parse(t),fs=o.files||o;for(const k in fs){files[k]=fs[k];dbSet(k,fs[k])}}catch(x){toast('資料包格式錯誤')}}
+      else{files[en.name]=t;dbSet(en.name,t)}}
+  }
+  refresh();toast(`已載入共 ${items.length} 筆`);
 };
 $('#clr').onclick=async()=>{if(confirm('清除已匯入的所有資料？')){files={};await dbClear();refresh();toast('已清除')}};
 (async()=>{
