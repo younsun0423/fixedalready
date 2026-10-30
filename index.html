@@ -68,11 +68,10 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px;border-radius:8px;bord
 
 <div id="panel"><div class="box">
   <h2>匯入 KML 檔</h2>
-  <p>可一次選多個檔（也可選資料包 .json）。地段取自屬性欄位（如「地段」「段名」），沒有的話取 KML 資料夾名稱，再沒有就用檔名。含「點」的歸為圖根點，含「面／線」的歸為地籍圖。資料只存在這支手機／電腦的瀏覽器裡，不會上傳。</p>
-  <input id="file" type="file" accept=".kml,.xml,.json,application/vnd.google-earth.kml+xml" multiple hidden>
+  <p>可一次選多個檔。地段取自屬性欄位（如「地段」「段名」），沒有的話取 KML 資料夾名稱，再沒有就用檔名。含「點」的歸為圖根點，含「面／線」的歸為地籍圖。資料只存在這支手機／電腦的瀏覽器裡，不會上傳。</p>
+  <input id="file" type="file" multiple hidden>
   <div style="display:flex;gap:6px;margin:10px 0;flex-wrap:wrap"><button id="pick" class="on">選擇檔案</button><button id="close">關閉</button></div>
-  <p>在電腦匯入後，可下載成「含資料的網頁」放上網路，手機直接開網址就有全部資料；或下載資料包，傳到手機再匯入。</p>
-  <div style="display:flex;gap:6px;margin:10px 0;flex-wrap:wrap"><button id="expP">下載含資料的網頁</button><button id="expJ">下載資料包</button><button id="clr">清除本機資料</button></div>
+  <div style="display:flex;gap:6px;margin:10px 0;flex-wrap:wrap"><button id="clr">清除本機資料</button></div>
   <div id="files"></div>
   <p id="msg"></p>
 </div></div>
@@ -277,22 +276,6 @@ $('#file').onchange=async e=>{
   e.target.value='';refresh();toast(`已載入共 ${items.length} 筆`);
 };
 $('#clr').onclick=async()=>{if(confirm('清除已匯入的所有資料？')){files={};await dbClear();refresh();toast('已清除')}};
-function dl(n,t,ty){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:ty}));a.download=n;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),5000)}
-$('#expJ').onclick=()=>{if(!Object.keys(files).length)return toast('還沒有資料可匯出');dl('地籍圖根資料包.json',JSON.stringify(files),'application/json')};
-$('#expP').onclick=()=>{
-  if(!Object.keys(files).length)return toast('還沒有資料可匯出');
-  const c=document.documentElement.cloneNode(true),m=c.querySelector('#map');
-  m.innerHTML='';['class','style','tabindex'].forEach(x=>m.removeAttribute(x));
-  c.querySelectorAll('#preload').forEach(e=>e.remove());
-  ['#results','#files','#ib'].forEach(x=>c.querySelector(x).innerHTML='');
-  ['#results','#info','#panel'].forEach(x=>c.querySelector(x).removeAttribute('style'));
-  c.querySelector('#sec').innerHTML='<option value="">全部地段</option>';
-  c.querySelector('#msg').textContent='';c.querySelector('#q').removeAttribute('value');
-  const sc=document.createElement('script');sc.id='preload';sc.type='application/json';
-  sc.textContent=JSON.stringify(files).replace(/</g,'\\u003c');
-  const bd=c.querySelector('body');bd.insertBefore(sc,bd.querySelector('script'));
-  dl('地籍查詢-含資料.html','<!DOCTYPE html>\n'+c.outerHTML,'text/html');
-};
 (async()=>{
   let emb={};const pe=document.getElementById('preload');
   if(pe){try{emb=JSON.parse(pe.textContent)}catch(e){}}
