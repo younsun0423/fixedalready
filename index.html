@@ -150,7 +150,7 @@ function parseKml(text,fname){
 function build(list){
   items=[];parcelLayer.clearLayers();ptLayer.clearLayers();sel=null;
   list.forEach(it=>{
-    it.on=false;it.key=norm(it.name);it.nsec=norm(it.sec||'');it.hay=norm(Object.values(it.a).join(' '));
+    it.on=false;it.key=norm(it.name);it.nsec=norm(it.sec||'');it.hay=norm(Object.values(it.a).join(' '));it.full=it.nsec+' '+it.key+' '+it.hay;
     if(it.kind==='p'){
       it.layer=L.featureGroup(it.pts.map(p=>L.circleMarker(p,{radius:7,color:'#fff',weight:2,fillColor:'#ff5a4d',fillOpacity:1})));
       it.layer.addTo(ptLayer);it.center=L.latLng(it.pts[0]);
@@ -204,15 +204,16 @@ function search(q){
   const cur=$('#sec').value,last=tk[tk.length-1],r=[];
   for(const it of items){
     if(it.kind==='c'&&cur&&it.sec!==cur)continue;
-    const full=it.nsec+' '+it.key+' '+it.hay;
-    if(!tk.every(t=>full.includes(t)))continue;
+    if(!tk.every(t=>it.full.includes(t)))continue;
     let s=3;if(it.key===last)s=0;else if(it.key.startsWith(last))s=1;else if(it.key.includes(last))s=2;
     r.push([s,it]);
   }
   return r.sort((a,b)=>a[0]-b[0]||a[1].key.length-b[1].key.length).slice(0,40).map(x=>x[1]);
 }
-$('#q').addEventListener('input',e=>{
-  const v=e.target.value;if(!v.trim()){res.style.display='none';return}
+let qt=null;
+$('#q').addEventListener('input',e=>{clearTimeout(qt);qt=setTimeout(()=>doSearch(e.target.value),150)});
+function doSearch(v){
+  if(!v.trim()){res.style.display='none';return}
   const r=search(v);res.innerHTML='';
   if(!items.length){res.innerHTML='<div>尚未匯入資料，請按右上「匯入」</div>'}
   else if(!r.length){res.innerHTML='<div>找不到符合的地號或圖根點</div>'}
@@ -220,7 +221,7 @@ $('#q').addEventListener('input',e=>{
     d.innerHTML=`<span></span><span class="tag ${it.kind}">${it.kind==='p'?'圖根':'地號'}</span>`;
     d.firstChild.textContent=(it.kind==='c'&&it.sec?it.sec+'  ':'')+(it.name||'(無名稱)');d.onclick=()=>{select(it,true);res.style.display='none';$('#q').blur()};res.appendChild(d)});
   res.style.display='block';
-});
+}
 $('#q').addEventListener('keydown',e=>{if(e.key==='Enter'){const r=search(e.target.value);if(r[0]){select(r[0],true);res.style.display='none';e.target.blur()}}});
 
 function tm2(lat,lng){
@@ -236,7 +237,7 @@ function select(it,zoom){
   clearSel();
   sel=it;
   if(it.kind==='c')showSel(it);
-  if(zoom){it.kind==='c'?map.fitBounds(it.bounds,{padding:[60,60],maxZoom:20}):map.setView(it.center,Math.max(map.getZoom(),19))}
+  if(zoom){it.kind==='c'?map.fitBounds(it.bounds,{padding:[60,60],maxZoom:20,animate:false}):map.setView(it.center,Math.max(map.getZoom(),19),{animate:false})}
   const ib=$('#ib');ib.innerHTML='';
   const h=document.createElement('h3');h.textContent=(it.kind==='p'?'圖根點 ':(it.sec?it.sec+' ':'')+'地號 ')+(it.name||'');ib.appendChild(h);
   const d=document.createElement('div');d.className='d';d.id='dist';ib.appendChild(d);
