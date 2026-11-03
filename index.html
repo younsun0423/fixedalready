@@ -73,7 +73,7 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px;border-radius:8px;bord
 <div class="side">
   <button id="loc" title="我的位置" aria-label="我的位置">◎</button>
   <button id="base" title="切換底圖" aria-label="切換底圖">🛰</button>
-  <button id="pbtn" title="顯示地籍框線" aria-label="地籍">地籍</button>
+  <button id="pbtn" title="疊加國土測繪中心 段籍圖層" aria-label="段籍">段籍</button>
   <button id="zin" aria-label="放大">＋</button>
   <button id="zout" aria-label="縮小">－</button>
 </div>
@@ -178,39 +178,20 @@ function applySec(fit){
   if(fit&&curC.length){let b=null;curC.forEach(it=>{b=b?b.extend(it.bounds):L.latLngBounds(it.bounds.getSouthWest(),it.bounds.getNorthEast())});map.fitBounds(b,{padding:[30,30]})}
   cull();labels();
 }
-let showP=false;
-function getLayer(it){return it.layer||(it.layer=L.polygon(it.polys,{...stP,interactive:false,smoothFactor:2}))}
-function cull(){
-  const want=showP&&$('#sec').value&&map.getZoom()>=17;
-  const v=map.getBounds().pad(.3),hits=new Set();
-  if(want){for(const it of curC)if(v.intersects(it.bounds))hits.add(it);if(hits.size>1500)hits.clear()}
-  if(sel&&sel.kind==='c')hits.add(sel);
-  for(const it of curC){
-    const h=hits.has(it);
-    if(h&&!it.on){parcelLayer.addLayer(getLayer(it));it.on=true}
-    else if(!h&&it.on){parcelLayer.removeLayer(it.layer);it.on=false}
-  }
-}
-$('#pbtn').onclick=()=>{
-  showP=!showP;$('#pbtn').classList.toggle('on',showP);
-  if(showP&&!$('#sec').value)alert('請先在「地段」下拉選單選一個地段，才會畫出地籍框線。\n（全部地段一起畫會很卡）');
-  else if(showP&&map.getZoom()<17)alert('地圖放大到一定程度（約第 17 級）才會顯示地籍框線。');
-  cull();labels();
-};
+let selMk=null;
+function clearSel(){if(selMk){map.removeLayer(selMk);selMk=null}}
+function showSel(it){clearSel();selMk=L.circleMarker(it.center,{radius:16,color:'#ff5a4d',weight:4,fillColor:'#ffd23f',fillOpacity:.25,interactive:false}).addTo(map)}
+function cull(){}
+/* 國土測繪中心圖層（圖磚疊加，不用自己畫線，所以不卡） */
+const cad=L.tileLayer('https://wmts.nlsc.gov.tw/wmts/LANDSECT/default/GoogleMapsCompatible/{z}/{y}/{x}',{maxNativeZoom:19,maxZoom:21,updateWhenZooming:false,zIndex:5,attribution:'© 內政部國土測繪中心'});
+$('#pbtn').onclick=()=>{const on=!map.hasLayer(cad);on?cad.addTo(map):map.removeLayer(cad);$('#pbtn').classList.toggle('on',on)};
 $('#sec').onchange=()=>{
-  if(sel&&sel.kind==='c'&&sel.layer)sel.layer.setStyle(stP);
+  clearSel();
   sel=null;$('#info').style.display='none';adj();
   applySec(true);
   if($('#q').value.trim())$('#q').dispatchEvent(new Event('input'));
 };
-function labels(){
-  const z=map.getZoom();$('#map').classList.toggle('z18',z>=18);
-  if(z<19)return;const b=map.getBounds();let n=0;
-  for(const it of items){
-    if(it.kind!=='c'||it.lab||!it.name||!it.on||!b.contains(it.center))continue;
-    it.layer.bindTooltip(it.name,{permanent:true,direction:'center',className:'tl pl'});it.lab=1;if(++n>150)break;
-  }
-}
+function labels(){$('#map').classList.toggle('z18',map.getZoom()>=18)}
 map.on('moveend',()=>{cull();labels()});
 
 /* ---------- 搜尋 ---------- */
@@ -249,9 +230,9 @@ function tm2(lat,lng){
   return{n:y.toFixed(3),e:x.toFixed(3)};
 }
 function select(it,zoom){
-  if(sel&&sel.kind==='c'&&sel.layer)sel.layer.setStyle(stP);
+  clearSel();
   sel=it;
-  if(it.kind==='c'){const ly=getLayer(it);ly.setStyle(stSel);cull();ly.bringToFront()}
+  if(it.kind==='c')showSel(it);
   if(zoom){it.kind==='c'?map.fitBounds(it.bounds,{padding:[60,60],maxZoom:20}):map.setView(it.center,Math.max(map.getZoom(),19))}
   const ib=$('#ib');ib.innerHTML='';
   const h=document.createElement('h3');h.textContent=(it.kind==='p'?'圖根點 ':(it.sec?it.sec+' ':'')+'地號 ')+(it.name||'');ib.appendChild(h);
@@ -271,7 +252,7 @@ function select(it,zoom){
   rows.forEach(([k,v])=>{const tr=t.insertRow();tr.insertCell().textContent=k;tr.insertCell().textContent=v});
   ib.appendChild(t);$('#info').style.display='block';dist();adj();
 }
-$('#x').onclick=()=>{$('#info').style.display='none';adj();if(sel&&sel.kind==='c'&&sel.layer)sel.layer.setStyle(stP);sel=null;cull()};
+$('#x').onclick=()=>{$('#info').style.display='none';adj();clearSel();sel=null};
 map.on('click',()=>{res.style.display='none'});
 function adj(){const h=$('#info').style.display==='block'?$('#info').offsetHeight+16:0;document.querySelectorAll('.leaflet-bottom').forEach(e=>e.style.bottom=h+'px')}
 function place(){const y=($('#top').getBoundingClientRect().bottom+8)+'px';$('.side').style.top=y;$('#me').style.top=y}
