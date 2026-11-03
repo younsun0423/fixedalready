@@ -233,6 +233,7 @@ function doSearch(v){
 }
 $('#q').addEventListener('keydown',e=>{if(e.key==='Enter'){const r=search(e.target.value);if(r[0]){select(r[0],true);res.style.display='none';e.target.blur()}}});
 
+function t3(v){const m=String(v).trim().match(/^(-?\d+)(?:\.(\d*))?$/);return m?m[1]+'.'+((m[2]||'')+'000').slice(0,3):v}
 function tm2(lat,lng){
   const a=6378137,f=1/298.257222101,e2=2*f-f*f,ep=e2/(1-e2),k0=.9999,r=Math.PI/180;
   const p=lat*r,l=(lng-121)*r,sn=Math.sin(p),cs=Math.cos(p),tn=Math.tan(p);
@@ -240,7 +241,7 @@ function tm2(lat,lng){
   const M=a*((1-e2/4-3*e2*e2/64-5*e2**3/256)*p-(3*e2/8+3*e2*e2/32+45*e2**3/1024)*Math.sin(2*p)+(15*e2*e2/256+45*e2**3/1024)*Math.sin(4*p)-(35*e2**3/3072)*Math.sin(6*p));
   const x=k0*N*(A+(1-T+C)*A**3/6+(5-18*T+T*T+72*C-58*ep)*A**5/120)+250000;
   const y=k0*(M+N*tn*(A*A/2+(5-T+9*C+4*C*C)*A**4/24+(61-58*T+T*T+600*C-330*ep)*A**6/720));
-  return{n:y.toFixed(3),e:x.toFixed(3)};
+  return{n:t3(y.toFixed(6)),e:t3(x.toFixed(6))};
 }
 function select(it,zoom){
   clearSel();
@@ -260,6 +261,7 @@ function select(it,zoom){
     if(mn&&me){cr=[['N 縱坐標',mn[1]],['E 橫坐標',me[1]]];rows=rows.filter(([k])=>k!=='說明')}
     else if(txt){cr=[['說明',txt]];rows=rows.filter(([k])=>k!=='說明')}
   }
+  cr=cr.map(([k,v])=>[k,/^-?\d+(\.\d+)?$/.test(String(v).trim())?t3(v):v]);
   const bg=document.createElement('div');bg.className='big';
   cr.forEach(([k,v])=>{const c=document.createElement('div');c.className='cv';c.innerHTML='<small></small><b></b>';
     c.firstChild.textContent=k;c.lastChild.textContent=v;bg.appendChild(c)});
