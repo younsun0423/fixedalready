@@ -31,7 +31,8 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px;border-radius:8px;bord
 #ib{padding-right:40px}
 #info h3{margin:0 0 4px;font-size:18px}
 #info .d{color:var(--acc);font-size:15px;margin-bottom:6px}
-#pbtn,#dbtn{font-size:14px!important}
+#pbtn{font-size:14px!important}
+#del{color:#ff9a8f}
 #me{position:absolute;z-index:998;left:8px;display:none;background:var(--panel);border:2px solid #2a8cff;border-radius:8px;padding:4px 10px}
 #me .mr{display:flex;align-items:baseline;gap:8px}
 #me small{color:var(--mute);font-size:12px}
@@ -63,9 +64,10 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px;border-radius:8px;bord
  <div id="top">
   <div class="row">
     <input id="q" type="search" placeholder="搜尋地號或圖根點，例如 123-4" autocomplete="off">
+    <button id="qbtn">查詢</button>
     <button id="imp">匯入</button>
   </div>
-  <div class="row" style="margin-top:6px"><select id="sec" aria-label="地段"><option value="">全部地段</option></select><button id="ren">✎ 改名</button></div>
+  <div class="row" style="margin-top:6px"><select id="sec" aria-label="地段"><option value="">全部地段</option></select><button id="ren">✎ 編輯</button><button id="del">刪除</button></div>
  </div>
   <div id="results"></div>
 </div>
@@ -73,7 +75,6 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px;border-radius:8px;bord
 <div class="side">
   <button id="loc" title="我的位置" aria-label="我的位置">◎</button>
   <button id="base" title="切換底圖" aria-label="切換底圖">🛰</button>
-  <button id="dbtn" title="疊加國土測繪中心 地籍圖磚 (DMAPS)" aria-label="地籍">地籍</button>
   <button id="pbtn" title="疊加國土測繪中心 段籍圖層" aria-label="段籍">段籍</button>
   <button id="zin" aria-label="放大">＋</button>
   <button id="zout" aria-label="縮小">－</button>
@@ -181,12 +182,11 @@ function applySec(fit){
 }
 let selMk=null;
 function clearSel(){if(selMk){map.removeLayer(selMk);selMk=null}}
-function showSel(it){clearSel();selMk=L.circleMarker(it.center,{radius:16,color:'#ff5a4d',weight:4,fillColor:'#ffd23f',fillOpacity:.25,interactive:false}).addTo(map)}
+const svgSel=L.svg();
+function showSel(it){clearSel();selMk=L.polygon(it.polys,{color:'#ff5a4d',weight:4,fillColor:'#ffd23f',fillOpacity:.25,interactive:false,renderer:svgSel}).addTo(map)}
 function cull(){}
 /* 國土測繪中心圖層（圖磚疊加，不用自己畫線，所以不卡） */
-const cad=L.tileLayer('https://wmts.nlsc.gov.tw/wmts/LANDSECT/default/GoogleMapsCompatible/{z}/{y}/{x}',{maxNativeZoom:19,maxZoom:21,updateWhenZooming:false,zIndex:5,attribution:'© 內政部國土測繪中心'});
-const dm=L.tileLayer('https://wmts.nlsc.gov.tw/wmts/DMAPS/default/GoogleMapsCompatible/{z}/{y}/{x}',{maxNativeZoom:19,maxZoom:21,updateWhenZooming:false,zIndex:6,attribution:'© 內政部國土測繪中心'});
-$('#dbtn').onclick=()=>{const on=!map.hasLayer(dm);on?dm.addTo(map):map.removeLayer(dm);$('#dbtn').classList.toggle('on',on)};
+const cad=L.tileLayer('https://wmts.nlsc.gov.tw/wmts/LANDSECT/default/GoogleMapsCompatible/{z}/{y}/{x}',{maxNativeZoom:18,maxZoom:21,updateWhenZooming:false,zIndex:5,attribution:'© 內政部國土測繪中心'});
 $('#pbtn').onclick=()=>{const on=!map.hasLayer(cad);on?cad.addTo(map):map.removeLayer(cad);$('#pbtn').classList.toggle('on',on)};
 $('#sec').onchange=()=>{
   clearSel();
@@ -273,7 +273,7 @@ place();addEventListener('resize',()=>{place();adj()});
 if(window.ResizeObserver){new ResizeObserver(place).observe($('#top'));new ResizeObserver(adj).observe($('#info'))}
 
 /* ---------- 定位 ---------- */
-let wid=null,meM=null,meC=null,last=null,first=true;
+let wid=null,meM=null,meC=null,last=null,first=true,lastT=0;
 function dist(){
   const e=$('#dist');if(!e||!sel)return;
   if(!last){e.textContent='開啟定位後顯示與現場的距離';return}
@@ -285,9 +285,10 @@ $('#loc').onclick=()=>{
   if(wid!==null){ if(last)map.setView(last,Math.max(map.getZoom(),19));return}
   $('#loc').classList.add('on');
   wid=navigator.geolocation.watchPosition(p=>{
+    const now=Date.now();if(meM&&now-lastT<1000)return;lastT=now;
     last=L.latLng(p.coords.latitude,p.coords.longitude);
     if(!meM){meM=L.marker(last,{icon:L.divIcon({className:'',html:'<div class="me"></div>',iconSize:[16,16]}),interactive:false,zIndexOffset:1000}).addTo(map);
-      meC=L.circle(last,{radius:p.coords.accuracy,color:'#2a8cff',weight:1,fillOpacity:.12,interactive:false}).addTo(map)}
+      meC=L.circle(last,{radius:p.coords.accuracy,color:'#2a8cff',weight:1,fillOpacity:.12,interactive:false,renderer:L.svg()}).addTo(map)}
     else{meM.setLatLng(last);meC.setLatLng(last).setRadius(p.coords.accuracy)}
     if(first){first=false;if(!sel)map.setView(last,Math.max(map.getZoom(),18))}
     const tt=tm2(last.lat,last.lng);
@@ -305,22 +306,39 @@ async function dbAll(){try{const d=await idb();return await new Promise(ok=>{con
 async function dbSet(k,v){try{const d=await idb();d.transaction('f','readwrite').objectStore('f').put(v,k)}catch(e){}}
 async function dbClear(){try{const d=await idb();d.transaction('f','readwrite').objectStore('f').clear()}catch(e){}}
 
-let ren={};const PC={};
+let ren={},delMap={};const PC={};
+function putFile(k,t){files[k]=t;dbSet(k,t);
+  try{const d=JSON.parse(files.__deleted||'{}');if(d[k]){delete d[k];files.__deleted=JSON.stringify(d);dbSet('__deleted',files.__deleted)}}catch(e){}}
 function refresh(){
   let all=[];const box=$('#files');box.innerHTML='';
   try{ren=JSON.parse(files.__renames||'{}')}catch(e){ren={}}
+  try{delMap=JSON.parse(files.__deleted||'{}')}catch(e){delMap={}}
   for(const [n,t] of Object.entries(files)){
     if(n.startsWith('__'))continue;
-    try{const pc=PC[n]&&PC[n].t===t?PC[n]:(PC[n]={t,l:parseKml(t,n)});const l=pc.l;l.forEach(x=>{if(x.sec0===undefined)x.sec0=x.sec;x.sec=ren[x.sec0]||x.sec0});all=all.concat(l);
+    try{const pc=PC[n]&&PC[n].t===t?PC[n]:(PC[n]={t,l:parseKml(t,n)});pc.l.forEach(x=>{if(x.sec0===undefined)x.sec0=x.sec;x.sec=ren[x.sec0]||x.sec0});const dl=delMap[n]||[];const l=pc.l.filter(x=>!(x.kind==='c'&&dl.includes(x.sec0)));all=all.concat(l);
       const d=document.createElement('div');const c=l.filter(x=>x.kind==='c').length,p=l.filter(x=>x.kind==='p').length;
       d.textContent=`${n}：地籍 ${c}、圖根 ${p}`;box.appendChild(d)}
     catch(e){const d=document.createElement('div');d.textContent=`${n}：${e.message}`;box.appendChild(d)}
   }
   build(all);
 }
+$('#del').onclick=()=>{
+  const cur=$('#sec').value;if(!cur){alert('請先在下拉選單選一個要刪除的地段');return}
+  const n=items.filter(i=>i.kind==='c'&&i.sec===cur).length;
+  if(!confirm(`刪除地段「${cur}」及其 ${n} 筆地號？\n（圖根點不受影響，之後重新匯入該檔案可以恢復）`))return;
+  items.forEach(i=>{if(i.kind==='c'&&i.sec===cur){const a=delMap[i.file]=delMap[i.file]||[];if(!a.includes(i.sec0))a.push(i.sec0)}});
+  files.__deleted=JSON.stringify(delMap);dbSet('__deleted',files.__deleted);
+  clearSel();sel=null;$('#info').style.display='none';adj();
+  $('#sec').value='';refresh();toast(`已刪除地段「${cur}」`);
+};
+$('#qbtn').onclick=()=>{
+  clearTimeout(qt);const v=$('#q').value;if(!v.trim()){$('#q').focus();return}
+  const r=search(v);
+  if(r.length===1){select(r[0],true);res.style.display='none';$('#q').blur()}else doSearch(v);
+};
 $('#ren').onclick=()=>{
   const cur=$('#sec').value;if(!cur){alert('請先在下拉選單選一個要改名的地段');return}
-  const nn=prompt(`將地段「${cur}」改名為：\n（輸入已存在的地段名稱會合併；留空則還原成原名）`,cur);
+  const nn=prompt(`編輯地段名稱，將「${cur}」改為：\n（輸入已存在的地段名稱會合併；留空則還原成原名）`,cur);
   if(nn===null)return;const v=nn.trim();
   items.forEach(it=>{if(it.kind==='c'&&it.sec===cur){if(!v||v===it.sec0)delete ren[it.sec0];else ren[it.sec0]=v}});
   files.__renames=JSON.stringify(ren);dbSet('__renames',files.__renames);
@@ -364,8 +382,8 @@ $('#file').onchange=async e=>{
     if(/\.zip$/i.test(f.name)){try{ents=await unzip(f)}catch(x){toast('壓縮檔讀取失敗：'+x.message);continue}}
     else ents=[{name:f.name,text:await f.text()}];
     for(const en of ents){const t=en.text;
-      if(t.trim()[0]==='{'){try{const o=JSON.parse(t),fs=o.files||o;for(const k in fs){files[k]=fs[k];dbSet(k,fs[k])}}catch(x){toast('資料包格式錯誤')}}
-      else{files[en.name]=t;dbSet(en.name,t)}}
+      if(t.trim()[0]==='{'){try{const o=JSON.parse(t),fs=o.files||o;for(const k in fs)putFile(k,fs[k])}catch(x){toast('資料包格式錯誤')}}
+      else putFile(en.name,t)}
   }
   toast('處理中，請稍候…');await new Promise(r=>setTimeout(r,40));
   refresh();toast(`已載入共 ${items.length} 筆`);
