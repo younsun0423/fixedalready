@@ -273,7 +273,13 @@ place();addEventListener('resize',()=>{place();adj()});
 if(window.ResizeObserver){new ResizeObserver(place).observe($('#top'));new ResizeObserver(adj).observe($('#info'))}
 
 /* ---------- 定位 ---------- */
-let wid=null,meM=null,meC=null,last=null,first=true,lastT=0;
+let wid=null,meM=null,meC=null,last=null,first=true,lastT=0,gbuf=[];
+function gAvg(){
+  if(!gbuf.length)return null;
+  const best=Math.min(...gbuf.map(x=>x.acc)),use=gbuf.filter(x=>x.acc<=best*2.5);
+  let w=0,la=0,ln=0;use.forEach(x=>{const k=1/(x.acc*x.acc);w+=k;la+=x.lat*k;ln+=x.lng*k});
+  return{ll:L.latLng(la/w,ln/w),acc:best,n:use.length};
+}
 function dist(){
   const e=$('#dist');if(!e||!sel)return;
   if(!last){e.textContent='開啟定位後顯示與現場的距離';return}
@@ -285,18 +291,26 @@ $('#loc').onclick=()=>{
   if(wid!==null){ if(last)map.setView(last,Math.max(map.getZoom(),19));return}
   $('#loc').classList.add('on');
   wid=navigator.geolocation.watchPosition(p=>{
-    const now=Date.now();if(meM&&now-lastT<1000)return;lastT=now;
-    last=L.latLng(p.coords.latitude,p.coords.longitude);
+    const c=p.coords,t=Date.now(),acc=Math.max(c.accuracy||50,1);
+    if(meM&&acc>150)return;                       // 太差的定位直接捨棄
+    let av=gAvg();
+    if(av&&map.distance(av.ll,[c.latitude,c.longitude])>Math.max(acc,av.acc,8)*1.5)gbuf=[];   // 人在移動，重新累積
+    gbuf.push({lat:c.latitude,lng:c.longitude,acc,t});
+    gbuf=gbuf.filter(x=>t-x.t<12000).slice(-10);
+    if(meM&&t-lastT<1000)return;lastT=t;
+    av=gAvg();last=av.ll;
     if(!meM){meM=L.marker(last,{icon:L.divIcon({className:'',html:'<div class="me"></div>',iconSize:[16,16]}),interactive:false,zIndexOffset:1000}).addTo(map);
-      meC=L.circle(last,{radius:p.coords.accuracy,color:'#2a8cff',weight:1,fillOpacity:.12,interactive:false,renderer:L.svg()}).addTo(map)}
-    else{meM.setLatLng(last);meC.setLatLng(last).setRadius(p.coords.accuracy)}
+      meC=L.circle(last,{radius:av.acc,color:'#2a8cff',weight:1,fillOpacity:.12,interactive:false,renderer:L.svg()}).addTo(map)}
+    else{meM.setLatLng(last);meC.setLatLng(last).setRadius(av.acc)}
     if(first){first=false;if(!sel)map.setView(last,Math.max(map.getZoom(),18))}
-    const tt=tm2(last.lat,last.lng);
-    $('#meN').textContent=tt.n;$('#meE').textContent=tt.e;$('#meA').textContent='TWD97 TM2 (121°)　精度 ±'+Math.round(p.coords.accuracy)+' 公尺';
+    const tt=tm2(last.lat,last.lng),ea=$('#meA');
+    $('#meN').textContent=tt.n;$('#meE').textContent=tt.e;
+    ea.textContent='TWD97 TM2 (121°)　精度 ±'+av.acc.toFixed(1)+' 公尺'+(av.n>1?`　已平均 ${av.n} 次`:'')+(av.acc>20?'　訊號不佳':'');
+    ea.style.color=av.acc<=5?'#4cc9a0':av.acc<=15?'#ffd23f':'#ff6b6b';
     $('#me').style.display='block';
     dist();
   },err=>{alert('無法取得位置：'+err.message+'\n（需使用 https 網址並允許定位權限）');navigator.geolocation.clearWatch(wid);wid=null;$('#loc').classList.remove('on')},
-  {enableHighAccuracy:true,maximumAge:2000,timeout:20000});
+  {enableHighAccuracy:true,maximumAge:0,timeout:30000});
 };
 
 /* ---------- 匯入與儲存 ---------- */
