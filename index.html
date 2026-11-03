@@ -252,13 +252,18 @@ function select(it,zoom){
   const d=document.createElement('div');d.className='d';d.id='dist';ib.appendChild(d);
   const isC=k=>/座標|坐標|^[nexy]$|^[ne][\s_]?(coord)|^(北|東|縱|橫)|twd97|tm2|northing|easting/i.test(k.trim());
   let cr=Object.entries(it.a).filter(([k,v])=>isC(k)&&v);
-  const rows=Object.entries(it.a).filter(([k])=>!isC(k)||!it.a[k]);
+  let rows=Object.entries(it.a).filter(([k])=>!isC(k)||!it.a[k]);
   if(it.kind==='p'){
-  if(!cr.length){const t=tm2(it.center.lat,it.center.lng);cr=[['N 縱坐標',t.n],['E 橫坐標',t.e]]}
+  if(!cr.length){
+    const txt=it.a['說明']||'';
+    const mn=txt.match(/\bN\s*[:：=]?\s*(-?\d+(?:\.\d+)?)/i),me=txt.match(/\bE\s*[:：=]?\s*(-?\d+(?:\.\d+)?)/i);
+    if(mn&&me){cr=[['N 縱坐標',mn[1]],['E 橫坐標',me[1]]];rows=rows.filter(([k])=>k!=='說明')}
+    else if(txt){cr=[['說明',txt]];rows=rows.filter(([k])=>k!=='說明')}
+  }
   const bg=document.createElement('div');bg.className='big';
   cr.forEach(([k,v])=>{const c=document.createElement('div');c.className='cv';c.innerHTML='<small></small><b></b>';
     c.firstChild.textContent=k;c.lastChild.textContent=v;bg.appendChild(c)});
-  ib.appendChild(bg);}
+  if(cr.length)ib.appendChild(bg);}
   const lat=it.center.lat.toFixed(7),lng=it.center.lng.toFixed(7);
   if(it.kind==='p')rows.push(['座標 (WGS84)',`${lat}, ${lng}`]);rows.push(['來源檔案',it.file]);
   const t=document.createElement('table');
