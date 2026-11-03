@@ -31,6 +31,11 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px;border-radius:8px;bord
 #ib{padding-right:40px}
 #info h3{margin:0 0 4px;font-size:18px}
 #info .d{color:var(--acc);font-size:15px;margin-bottom:6px}
+#pbtn{font-size:14px!important}
+#me{position:absolute;z-index:998;left:8px;display:none;background:var(--panel);border:2px solid #2a8cff;border-radius:8px;padding:4px 10px}
+#me .mr{display:flex;align-items:baseline;gap:8px}
+#me small{color:var(--mute);font-size:12px}
+#me b{font-size:clamp(20px,6.5vw,26px);font-variant-numeric:tabular-nums;color:#8cc4ff}
 #info .big{display:flex;flex-direction:column;gap:6px;margin:4px 0 10px}
 #info .cv{flex-wrap:wrap;display:flex;align-items:baseline;justify-content:space-between;gap:10px;background:#0f1a18;border:2px solid var(--acc);border-radius:8px;padding:6px 12px}
 #info .cv small{color:var(--mute);font-size:15px;white-space:nowrap}
@@ -68,10 +73,12 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px;border-radius:8px;bord
 <div class="side">
   <button id="loc" title="我的位置" aria-label="我的位置">◎</button>
   <button id="base" title="切換底圖" aria-label="切換底圖">🛰</button>
+  <button id="pbtn" title="顯示地籍框線" aria-label="地籍">地籍</button>
   <button id="zin" aria-label="放大">＋</button>
   <button id="zout" aria-label="縮小">－</button>
 </div>
 
+<div id="me"><div class="mr"><small>我的位置 N</small><b id="meN"></b></div><div class="mr"><small>E</small><b id="meE"></b></div><small id="meA"></small></div>
 <div id="info"><button id="x" aria-label="關閉">✕</button><div id="ib"></div></div>
 
 <div id="panel"><div class="box">
@@ -111,10 +118,12 @@ function attrs(pm){
   pm.querySelectorAll('ExtendedData Data').forEach(d=>{const v=d.querySelector('value');o[d.getAttribute('name')]=v?v.textContent:''});
   pm.querySelectorAll('ExtendedData SimpleData').forEach(d=>o[d.getAttribute('name')]=d.textContent);
   const de=pm.querySelector(':scope > description');
-  if(de){const h=new DOMParser().parseFromString(de.textContent,'text/html');
-    const rows=[...h.querySelectorAll('tr')];
-    if(rows.length){rows.forEach(r=>{const c=r.querySelectorAll('th,td');if(c.length>=2)o[c[0].textContent.trim()]=c[1].textContent.trim()})}
-    else{const t=h.body.textContent.trim();if(t)o['說明']=t}}
+  if(de){const dt=de.textContent;
+    if(dt.indexOf('<')<0){const t=dt.trim();if(t)o['說明']=t}
+    else{const h=new DOMParser().parseFromString(dt,'text/html');
+      const rows=[...h.querySelectorAll('tr')];
+      if(rows.length){rows.forEach(r=>{const c=r.querySelectorAll('th,td');if(c.length>=2)o[c[0].textContent.trim()]=c[1].textContent.trim()})}
+      else{const t=h.body.textContent.trim();if(t)o['說明']=t}}}
   return o;
 }
 function parseKml(text,fname){
@@ -140,13 +149,14 @@ function parseKml(text,fname){
 function build(list){
   items=[];parcelLayer.clearLayers();ptLayer.clearLayers();sel=null;
   list.forEach(it=>{
-    it.key=norm(it.name);it.nsec=norm(it.sec||'');it.hay=norm(Object.values(it.a).join(' '));
+    it.on=false;it.key=norm(it.name);it.nsec=norm(it.sec||'');it.hay=norm(Object.values(it.a).join(' '));
     if(it.kind==='p'){
       it.layer=L.featureGroup(it.pts.map(p=>L.circleMarker(p,{radius:7,color:'#fff',weight:2,fillColor:'#ff5a4d',fillOpacity:1})));
       it.layer.addTo(ptLayer);it.center=L.latLng(it.pts[0]);
       if(it.name)it.layer.eachLayer(m=>m.bindTooltip(it.name,{permanent:true,direction:'right',className:'tl',offset:[6,0]}));
     }else{
-      it.layer=L.polygon(it.polys,{...stP,interactive:false,smoothFactor:2});it.bounds=it.layer.getBounds();it.center=it.bounds.getCenter();
+      if(!it.bounds){let a=90,b=180,c=-90,d=-180;for(const pg of it.polys)for(const r of pg)for(const q of r){if(q[0]<a)a=q[0];if(q[0]>c)c=q[0];if(q[1]<b)b=q[1];if(q[1]>d)d=q[1]}it.bounds=L.latLngBounds([a,b],[c,d])}
+      it.center=it.bounds.getCenter();
     }
     if(it.kind==='p')it.layer.on('click',e=>{L.DomEvent.stopPropagation(e);select(it,false)});
     items.push(it);
@@ -168,17 +178,36 @@ function applySec(fit){
   if(fit&&curC.length){let b=null;curC.forEach(it=>{b=b?b.extend(it.bounds):L.latLngBounds(it.bounds.getSouthWest(),it.bounds.getNorthEast())});map.fitBounds(b,{padding:[30,30]})}
   cull();labels();
 }
+let showP=false;
+function getLayer(it){return it.layer||(it.layer=L.polygon(it.polys,{...stP,interactive:false,smoothFactor:2}))}
 function cull(){
-  const v=map.getBounds().pad(.4);
-  for(const it of curC){const hit=v.intersects(it.bounds);
-    if(hit&&!it.on){parcelLayer.addLayer(it.layer);it.on=true}
-    else if(!hit&&it.on&&it!==sel){parcelLayer.removeLayer(it.layer);it.on=false}}
+  const want=showP&&$('#sec').value&&map.getZoom()>=17;
+  const v=map.getBounds().pad(.3),hits=new Set();
+  if(want){for(const it of curC)if(v.intersects(it.bounds))hits.add(it);if(hits.size>1500)hits.clear()}
+  if(sel&&sel.kind==='c')hits.add(sel);
+  for(const it of curC){
+    const h=hits.has(it);
+    if(h&&!it.on){parcelLayer.addLayer(getLayer(it));it.on=true}
+    else if(!h&&it.on){parcelLayer.removeLayer(it.layer);it.on=false}
+  }
 }
+$('#pbtn').onclick=()=>{
+  showP=!showP;$('#pbtn').classList.toggle('on',showP);
+  if(showP&&!$('#sec').value)alert('請先在「地段」下拉選單選一個地段，才會畫出地籍框線。\n（全部地段一起畫會很卡）');
+  else if(showP&&map.getZoom()<17)alert('地圖放大到一定程度（約第 17 級）才會顯示地籍框線。');
+  cull();labels();
+};
+$('#sec').onchange=()=>{
+  if(sel&&sel.kind==='c'&&sel.layer)sel.layer.setStyle(stP);
+  sel=null;$('#info').style.display='none';adj();
+  applySec(true);
+  if($('#q').value.trim())$('#q').dispatchEvent(new Event('input'));
+};
 function labels(){
   const z=map.getZoom();$('#map').classList.toggle('z18',z>=18);
   if(z<19)return;const b=map.getBounds();let n=0;
   for(const it of items){
-    if(it.kind!=='c'||it.lab||!it.name||!b.contains(it.center))continue;
+    if(it.kind!=='c'||it.lab||!it.name||!it.on||!b.contains(it.center))continue;
     it.layer.bindTooltip(it.name,{permanent:true,direction:'center',className:'tl pl'});it.lab=1;if(++n>150)break;
   }
 }
@@ -220,10 +249,10 @@ function tm2(lat,lng){
   return{n:y.toFixed(3),e:x.toFixed(3)};
 }
 function select(it,zoom){
-  if(sel&&sel.kind==='c')sel.layer.setStyle(stP);
+  if(sel&&sel.kind==='c'&&sel.layer)sel.layer.setStyle(stP);
   sel=it;
-  if(it.kind==='c'){it.layer.setStyle(stSel);it.layer.bringToFront()}
-  if(zoom){it.kind==='c'?map.fitBounds(it.layer.getBounds(),{padding:[60,60],maxZoom:20}):map.setView(it.center,Math.max(map.getZoom(),19))}
+  if(it.kind==='c'){const ly=getLayer(it);ly.setStyle(stSel);cull();ly.bringToFront()}
+  if(zoom){it.kind==='c'?map.fitBounds(it.bounds,{padding:[60,60],maxZoom:20}):map.setView(it.center,Math.max(map.getZoom(),19))}
   const ib=$('#ib');ib.innerHTML='';
   const h=document.createElement('h3');h.textContent=(it.kind==='p'?'圖根點 ':(it.sec?it.sec+' ':'')+'地號 ')+(it.name||'');ib.appendChild(h);
   const d=document.createElement('div');d.className='d';d.id='dist';ib.appendChild(d);
@@ -242,10 +271,10 @@ function select(it,zoom){
   rows.forEach(([k,v])=>{const tr=t.insertRow();tr.insertCell().textContent=k;tr.insertCell().textContent=v});
   ib.appendChild(t);$('#info').style.display='block';dist();adj();
 }
-$('#x').onclick=()=>{$('#info').style.display='none';adj();if(sel&&sel.kind==='c')sel.layer.setStyle(stP);sel=null};
+$('#x').onclick=()=>{$('#info').style.display='none';adj();if(sel&&sel.kind==='c'&&sel.layer)sel.layer.setStyle(stP);sel=null;cull()};
 map.on('click',()=>{res.style.display='none'});
 function adj(){const h=$('#info').style.display==='block'?$('#info').offsetHeight+16:0;document.querySelectorAll('.leaflet-bottom').forEach(e=>e.style.bottom=h+'px')}
-function place(){$('.side').style.top=($('#top').getBoundingClientRect().bottom+8)+'px'}
+function place(){const y=($('#top').getBoundingClientRect().bottom+8)+'px';$('.side').style.top=y;$('#me').style.top=y}
 place();addEventListener('resize',()=>{place();adj()});
 if(window.ResizeObserver){new ResizeObserver(place).observe($('#top'));new ResizeObserver(adj).observe($('#info'))}
 
@@ -267,6 +296,9 @@ $('#loc').onclick=()=>{
       meC=L.circle(last,{radius:p.coords.accuracy,color:'#2a8cff',weight:1,fillOpacity:.12,interactive:false}).addTo(map)}
     else{meM.setLatLng(last);meC.setLatLng(last).setRadius(p.coords.accuracy)}
     if(first){first=false;if(!sel)map.setView(last,Math.max(map.getZoom(),18))}
+    const tt=tm2(last.lat,last.lng);
+    $('#meN').textContent=tt.n;$('#meE').textContent=tt.e;$('#meA').textContent='TWD97 TM2 (121°)　精度 ±'+Math.round(p.coords.accuracy)+' 公尺';
+    $('#me').style.display='block';
     dist();
   },err=>{alert('無法取得位置：'+err.message+'\n（需使用 https 網址並允許定位權限）');navigator.geolocation.clearWatch(wid);wid=null;$('#loc').classList.remove('on')},
   {enableHighAccuracy:true,maximumAge:2000,timeout:20000});
@@ -279,13 +311,13 @@ async function dbAll(){try{const d=await idb();return await new Promise(ok=>{con
 async function dbSet(k,v){try{const d=await idb();d.transaction('f','readwrite').objectStore('f').put(v,k)}catch(e){}}
 async function dbClear(){try{const d=await idb();d.transaction('f','readwrite').objectStore('f').clear()}catch(e){}}
 
-let ren={};
+let ren={};const PC={};
 function refresh(){
   let all=[];const box=$('#files');box.innerHTML='';
   try{ren=JSON.parse(files.__renames||'{}')}catch(e){ren={}}
   for(const [n,t] of Object.entries(files)){
     if(n.startsWith('__'))continue;
-    try{const l=parseKml(t,n);l.forEach(x=>{x.sec0=x.sec;x.sec=ren[x.sec]||x.sec});all=all.concat(l);
+    try{const pc=PC[n]&&PC[n].t===t?PC[n]:(PC[n]={t,l:parseKml(t,n)});const l=pc.l;l.forEach(x=>{if(x.sec0===undefined)x.sec0=x.sec;x.sec=ren[x.sec0]||x.sec0});all=all.concat(l);
       const d=document.createElement('div');const c=l.filter(x=>x.kind==='c').length,p=l.filter(x=>x.kind==='p').length;
       d.textContent=`${n}：地籍 ${c}、圖根 ${p}`;box.appendChild(d)}
     catch(e){const d=document.createElement('div');d.textContent=`${n}：${e.message}`;box.appendChild(d)}
@@ -341,6 +373,7 @@ $('#file').onchange=async e=>{
       if(t.trim()[0]==='{'){try{const o=JSON.parse(t),fs=o.files||o;for(const k in fs){files[k]=fs[k];dbSet(k,fs[k])}}catch(x){toast('資料包格式錯誤')}}
       else{files[en.name]=t;dbSet(en.name,t)}}
   }
+  toast('處理中，請稍候…');await new Promise(r=>setTimeout(r,40));
   refresh();toast(`已載入共 ${items.length} 筆`);
 };
 $('#clr').onclick=async()=>{if(confirm('清除已匯入的所有資料？')){files={};await dbClear();refresh();toast('已清除')}};
