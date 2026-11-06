@@ -46,7 +46,13 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px;border-radius:8px;bord
 #info td:first-child{color:var(--mute);white-space:nowrap}
 #x{position:absolute;right:6px;top:6px;padding:2px 9px}
 #panel{position:absolute;z-index:1001;inset:0;background:rgba(10,18,16,.85);display:none;align-items:center;justify-content:center;padding:16px}
-#panel .box{background:var(--panel);border:2px solid var(--line);border-radius:12px;padding:16px;max-width:440px;width:100%}
+#panel .box{background:var(--panel);border:2px solid var(--line);border-radius:12px;padding:16px;max-width:440px;width:100%;max-height:92vh;overflow:auto}
+#panel h3{margin:12px 0 4px;font-size:15px}
+.fr{display:flex;align-items:center;gap:6px;padding:5px 0;border-top:1px solid var(--line);font-size:13px}
+.fr input{flex:1;min-width:0;font-size:14px;padding:6px 8px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+.fr button{padding:5px 10px;font-size:12px}
+.sm{color:var(--mute);font-size:12px;padding:0 0 4px}
+.sm.er{color:#ff8a80}
 #panel h2{margin:0 0 8px;font-size:18px}
 #panel p{color:var(--mute);font-size:14px;margin:6px 0}
 #files div{font-size:14px;padding:4px 0;display:flex;justify-content:space-between}
@@ -85,10 +91,13 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px;border-radius:8px;bord
 
 <div id="panel"><div class="box">
   <h2>匯入 KML 檔</h2>
-  <p>可一次選多個檔，也可直接選 .zip 資料包。地段取自屬性欄位（如「地段」「段名」），沒有的話取 KML 資料夾名稱，再沒有就用檔名。含「點」的歸為圖根點，含「面／線」的歸為地籍圖。資料只存在這支手機／電腦的瀏覽器裡，不會上傳。</p>
+  <p>可一次選多個檔，也可直接選 .zip 資料包。選好後會先列在「待匯入」，確認無誤再按「確認匯入」。地段取自屬性欄位（如「地段」「段名」），沒有的話取 KML 資料夾名稱，再沒有就用檔名。含「點」的歸為圖根點，含「面／線」的歸為地籍圖。資料只存在這支手機／電腦的瀏覽器裡，不會上傳。</p>
   <input id="file" type="file" multiple hidden>
   <div style="display:flex;gap:6px;margin:10px 0;flex-wrap:wrap"><button id="pick" class="on">選擇檔案</button><button id="close">關閉</button></div>
   <div style="display:flex;gap:6px;margin:10px 0;flex-wrap:wrap"><button id="pack">打包成單一檔案</button><button id="clr">清除本機資料</button></div>
+  <div id="pend" style="display:none"><h3>待匯入（按「確認匯入」才會加入）</h3><div id="plist"></div>
+    <div style="display:flex;gap:6px;margin:8px 0"><button id="ok" class="on">確認匯入</button><button id="pcancel">全部取消</button></div></div>
+  <h3>已匯入的檔案</h3>
   <div id="files"></div>
   <p id="msg"></p>
 </div></div>
@@ -330,6 +339,18 @@ async function dbClear(){try{const d=await idb();d.transaction('f','readwrite').
 let ren={},delMap={};const PC={};
 function putFile(k,t){files[k]=t;dbSet(k,t);
   try{const d=JSON.parse(files.__deleted||'{}');if(d[k]){delete d[k];files.__deleted=JSON.stringify(d);dbSet('__deleted',files.__deleted)}}catch(e){}}
+function fileRow(box,n,txt){
+  const d=document.createElement('div');d.className='fr';
+  const sp=document.createElement('span');sp.style.cssText='flex:1;min-width:0;word-break:break-all';sp.textContent=txt;
+  const b=document.createElement('button');b.textContent='刪除';b.onclick=()=>delFile(n);
+  d.appendChild(sp);d.appendChild(b);box.appendChild(d)}
+async function dbDel(k){try{const d=await idb();d.transaction('f','readwrite').objectStore('f').delete(k)}catch(e){}}
+async function delFile(n){
+  if(!confirm(`刪除已匯入的檔案「${n}」？`))return;
+  delete files[n];delete PC[n];await dbDel(n);
+  clearSel();sel=null;$('#info').style.display='none';adj();
+  refresh();toast(`已刪除檔案「${n}」`);
+}
 function refresh(){
   let all=[];const box=$('#files');box.innerHTML='';
   try{ren=JSON.parse(files.__renames||'{}')}catch(e){ren={}}
@@ -337,9 +358,9 @@ function refresh(){
   for(const [n,t] of Object.entries(files)){
     if(n.startsWith('__'))continue;
     try{const pc=PC[n]&&PC[n].t===t?PC[n]:(PC[n]={t,l:parseKml(t,n)});pc.l.forEach(x=>{if(x.sec0===undefined)x.sec0=x.sec;x.sec=ren[x.sec0]||x.sec0});const dl=delMap[n]||[];const l=pc.l.filter(x=>!(x.kind==='c'&&dl.includes(x.sec0)));all=all.concat(l);
-      const d=document.createElement('div');const c=l.filter(x=>x.kind==='c').length,p=l.filter(x=>x.kind==='p').length;
-      d.textContent=`${n}：地籍 ${c}、圖根 ${p}`;box.appendChild(d)}
-    catch(e){const d=document.createElement('div');d.textContent=`${n}：${e.message}`;box.appendChild(d)}
+      const c=l.filter(x=>x.kind==='c').length,p=l.filter(x=>x.kind==='p').length;
+      fileRow(box,n,`${n}：地籍 ${c}、圖根 ${p}`)}
+    catch(e){fileRow(box,n,`${n}：${e.message}`)}
   }
   build(all);
 }
@@ -396,18 +417,66 @@ async function unzip(file){
   }
   return out;
 }
+let pending=[];
+const exists=(n,self)=>(n in files)||pending.some(q=>q!==self&&q.name===n);
+function uniq(n,self){if(!exists(n,self))return n;const m=n.match(/^(.*?)(\.[^.]*)?$/);let i=2,k;do{k=`${m[1]} (${i++})${m[2]||''}`}while(exists(k,self));return k}
+function summarize(p){
+  try{const l=parseKml(p.text,p.name);PC[p.name]={t:p.text,l};
+    const c=l.filter(x=>x.kind==='c'),pt=l.filter(x=>x.kind==='p').length,sec=[...new Set(c.map(x=>x.sec))];
+    p.err=!c.length&&!pt;
+    p.sum=p.err?'沒有讀到任何地號或圖根點':`地籍 ${c.length} 筆`+(sec.length?`（地段：${sec.slice(0,4).join('、')}${sec.length>4?'…':''}）`:'')+`、圖根 ${pt} 點`;
+  }catch(e){p.err=true;p.sum=e.message}
+}
+function renderPend(){
+  const box=$('#plist');box.innerHTML='';
+  pending.forEach(p=>{
+    const w=document.createElement('div'),r=document.createElement('div');r.className='fr';
+    const inp=document.createElement('input');inp.value=p.name;inp.title='檔名（也是沒有地段資訊時的地段名稱）';
+    inp.onchange=()=>{let v=inp.value.trim();if(!v){inp.value=p.name;return}
+      if(!/\.(kml|xml)$/i.test(v))v+='.kml';
+      if(exists(v,p)){alert('這個名稱已經有檔案使用了，請換一個，避免互相覆蓋。');inp.value=p.name;return}
+      delete PC[p.name];p.name=v;summarize(p);renderPend()};
+    const x=document.createElement('button');x.textContent='✕';x.title='不匯入這個檔案';
+    x.onclick=()=>{delete PC[p.name];pending=pending.filter(q=>q!==p);renderPend()};
+    r.appendChild(inp);r.appendChild(x);
+    const sm=document.createElement('div');sm.className='sm'+(p.err?' er':'');sm.textContent=p.sum;
+    w.appendChild(r);w.appendChild(sm);box.appendChild(w);
+  });
+  $('#pend').style.display=pending.length?'block':'none';
+  $('#ok').disabled=!pending.some(p=>!p.err);
+}
 $('#file').onchange=async e=>{
   const list=[...e.target.files];e.target.value='';
+  toast('讀取檔案中…');await new Promise(r=>setTimeout(r,30));
+  let skipped=0,bad=[];
   for(const f of list){
     let ents;
-    if(/\.zip$/i.test(f.name)){try{ents=await unzip(f)}catch(x){toast('壓縮檔讀取失敗：'+x.message);continue}}
+    if(/\.zip$/i.test(f.name)){try{ents=await unzip(f)}catch(x){bad.push(f.name+'（'+x.message+'）');continue}}
     else ents=[{name:f.name,text:await f.text()}];
-    for(const en of ents){const t=en.text;
-      if(t.trim()[0]==='{'){try{const o=JSON.parse(t),fs=o.files||o;for(const k in fs)putFile(k,fs[k])}catch(x){toast('資料包格式錯誤')}}
-      else putFile(en.name,t)}
+    const flat=[];
+    for(const en of ents){
+      if(en.text.trim()[0]==='{'){try{const o=JSON.parse(en.text),fs=o.files||o;for(const k in fs)flat.push({name:k,text:fs[k]})}catch(x){bad.push(en.name+'（資料包格式錯誤）')}}
+      else flat.push(en);
+    }
+    for(const en of flat){
+      if(en.name.startsWith('__')){putFile(en.name,en.text);continue}
+      if(files[en.name]===en.text||pending.some(q=>q.name===en.name&&q.text===en.text)){skipped++;continue}
+      const p={name:uniq(en.name),text:en.text};summarize(p);pending.push(p);
+    }
   }
-  toast('處理中，請稍候…');await new Promise(r=>setTimeout(r,40));
-  refresh();toast(`已載入共 ${items.length} 筆`);
+  renderPend();
+  toast((pending.length?`已選好 ${pending.length} 個檔案，請確認後按「確認匯入」。`:'沒有可匯入的新檔案。')+(skipped?` 略過 ${skipped} 個已匯入過的相同檔案。`:'')+(bad.length?` 無法讀取：${bad.join('、')}`:''));
+};
+$('#pcancel').onclick=()=>{pending.forEach(p=>{if(!(p.name in files))delete PC[p.name]});pending=[];renderPend();toast('已取消')};
+$('#ok').onclick=async()=>{
+  const okList=pending.filter(p=>!p.err);if(!okList.length)return;
+  const before=new Set(items.filter(i=>i.kind==='c').map(i=>i.sec));
+  toast('匯入中，請稍候…');await new Promise(r=>setTimeout(r,40));
+  okList.forEach(p=>putFile(p.name,p.text));
+  pending=pending.filter(p=>p.err);renderPend();
+  refresh();
+  const after=[...new Set(items.filter(i=>i.kind==='c').map(i=>i.sec))].filter(k=>!before.has(k));
+  toast(`已匯入 ${okList.length} 個檔案。`+(after.length?`新增地段：${after.join('、')}`:'沒有新增地段名稱（地號可能併入既有地段）。')+`目前共 ${[...new Set(items.filter(i=>i.kind==='c').map(i=>i.sec))].length} 個地段。`);
 };
 $('#clr').onclick=async()=>{if(confirm('清除已匯入的所有資料？')){files={};await dbClear();refresh();toast('已清除')}};
 (async()=>{
