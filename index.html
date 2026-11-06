@@ -420,10 +420,12 @@ async function unzip(file){
 let pending=[];
 const exists=(n,self)=>(n in files)||pending.some(q=>q!==self&&q.name===n);
 function uniq(n,self){if(!exists(n,self))return n;const m=n.match(/^(.*?)(\.[^.]*)?$/);let i=2,k;do{k=`${m[1]} (${i++})${m[2]||''}`}while(exists(k,self));return k}
+const stemOf=n=>n.replace(/\.[^.]+$/,'');
 function summarize(p){
   try{const l=parseKml(p.text,p.name);PC[p.name]={t:p.text,l};
     const c=l.filter(x=>x.kind==='c'),pt=l.filter(x=>x.kind==='p').length,sec=[...new Set(c.map(x=>x.sec))];
     p.err=!c.length&&!pt;
+    p.hasSec=c.some(x=>x.sec!==stemOf(p.name));      // 地段名稱是否來自檔案內容
     p.sum=p.err?'沒有讀到任何地號或圖根點':`地籍 ${c.length} 筆`+(sec.length?`（地段：${sec.slice(0,4).join('、')}${sec.length>4?'…':''}）`:'')+`、圖根 ${pt} 點`;
   }catch(e){p.err=true;p.sum=e.message}
 }
@@ -431,15 +433,23 @@ function renderPend(){
   const box=$('#plist');box.innerHTML='';
   pending.forEach(p=>{
     const w=document.createElement('div'),r=document.createElement('div');r.className='fr';
-    const inp=document.createElement('input');inp.value=p.name;inp.title='檔名（也是沒有地段資訊時的地段名稱）';
-    inp.onchange=()=>{let v=inp.value.trim();if(!v){inp.value=p.name;return}
-      if(!/\.(kml|xml)$/i.test(v))v+='.kml';
-      if(exists(v,p)){alert('這個名稱已經有檔案使用了，請換一個，避免互相覆蓋。');inp.value=p.name;return}
-      delete PC[p.name];p.name=v;summarize(p);renderPend()};
+    const hasC=!p.err&&/地籍 [1-9]/.test(p.sum);
+    if(hasC&&!p.hasSec){
+      const lb=document.createElement('span');lb.textContent='地段名稱';lb.style.whiteSpace='nowrap';
+      const inp=document.createElement('input');inp.value=stemOf(p.name);inp.placeholder='例如：新生段';
+      inp.onchange=()=>{const v=inp.value.trim();if(!v){inp.value=stemOf(p.name);return}
+        const nn=v+'.kml';
+        if(nn!==p.name&&exists(nn,p)){alert('已經有檔案使用「'+v+'」這個名稱，請換一個；若是同一地段的新版本，請先在「已匯入的檔案」刪掉舊的。');inp.value=stemOf(p.name);return}
+        delete PC[p.name];p.name=nn;summarize(p);renderPend()};
+      r.appendChild(lb);r.appendChild(inp);
+    }else{
+      const lb=document.createElement('span');lb.style.cssText='flex:1;min-width:0;word-break:break-all';
+      lb.textContent=p.name+(hasC?'（地段名稱取自檔案內容）':'');r.appendChild(lb);
+    }
     const x=document.createElement('button');x.textContent='✕';x.title='不匯入這個檔案';
     x.onclick=()=>{delete PC[p.name];pending=pending.filter(q=>q!==p);renderPend()};
-    r.appendChild(inp);r.appendChild(x);
-    const sm=document.createElement('div');sm.className='sm'+(p.err?' er':'');sm.textContent=p.sum;
+    r.appendChild(x);
+    const sm=document.createElement('div');sm.className='sm'+(p.err?' er':'');sm.textContent=(hasC&&!p.hasSec?p.name+'：':'')+p.sum;
     w.appendChild(r);w.appendChild(sm);box.appendChild(w);
   });
   $('#pend').style.display=pending.length?'block':'none';
