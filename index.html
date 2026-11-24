@@ -197,12 +197,12 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px}
 
   <div style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">
     <h3>分享給組員</h3>
-    <p>把案件匯出成檔案傳給另外兩位，他們用「匯入案件」即可同步。也可匯出 ICS 直接加入 Google 日曆 / Outlook。</p>
+    <p>把案件匯出成檔案傳給另外兩位，他們用「匯入」即可同步。支援 CSV、ICS 日曆檔、完整資料包（JSON）。</p>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
       <button id="cexpCsv">匯出 CSV</button>
       <button id="cexpIcs">匯出 ICS 日曆</button>
       <button id="cexpAll">匯出完整資料包</button>
-      <button id="cimp">匯入案件 / 資料包</button>
+      <button id="cimp">匯入 CSV / ICS / 資料包</button>
       <button id="cclr" style="color:#ff9a8f">清除所有案件</button>
     </div>
     <input id="cfile" type="file" accept=".json,.csv,.txt,.ics" hidden>
@@ -390,7 +390,9 @@ function select(it,zoom){
   rows.forEach(([k,v])=>{const tr=t.insertRow();tr.insertCell().textContent=k;tr.insertCell().textContent=v});
   ib.appendChild(t);
 
-  // 從地圖加入案件按鈕
+  // 從地圖加入案件 + 導航
+  const btnRow=document.createElement('div');
+  btnRow.style.cssText='display:flex;gap:8px;margin-top:8px;flex-wrap:wrap';
   const addBtn=document.createElement('button');
   addBtn.id='addFromMap';
   addBtn.className='on';
@@ -402,7 +404,7 @@ function select(it,zoom){
     const mm=String(Math.round(now.getMinutes()/5)*5%60).padStart(2,'0');
     openCaseForm({
       date:today,
-      time:hh+':'+mm,
+      time:roundTime5(hh+':'+mm),
       type:'鑑界',
       sec:it.sec||'',
       no:it.name||'',
@@ -415,7 +417,15 @@ function select(it,zoom){
     });
     $('#cpanel').style.display='flex';
   };
-  ib.appendChild(addBtn);
+  const navBtn=document.createElement('button');
+  navBtn.textContent='Google 導航';
+  navBtn.onclick=()=>{
+    if(it.center) openGMapsNav(it.center.lat, it.center.lng, (it.sec?it.sec+' ':'')+(it.name||''));
+    else toast('此項目沒有座標');
+  };
+  btnRow.appendChild(addBtn);
+  btnRow.appendChild(navBtn);
+  ib.appendChild(btnRow);
 
   $('#info').style.display='block';dist();adj();
 }
@@ -978,6 +988,49 @@ $('#cfile').onchange=async e=>{
         n++;
       });
       saveCases();renderCal();renderCaseList();toast(`已從 CSV 匯入 ${n} 筆案件`);
+    }else if(f.name.endsWith('.ics')||/BEGIN:VCALENDAR/i.test(text)){
+      // 解析 ICS 匯入案件
+      const unfolded=text.replace(/\r\n[ \t]/g,'').replace(/\n[ \t]/g,'');
+      const events=unfolded.split(/BEGIN:VEVENT/i).slice(1);
+      let n=0;
+      events.forEach(block=>{
+        const get=(key)=>{
+          const re=new RegExp('^'+key+'(?:;[^:]*)?:(.*)$','im');
+          const m=block.match(re);
+          return m?m[1].trim().replace(/\\n/g,'\n').replace(/\\,/g,',').replace(/\\;/g,';').replace(/\\\\/g,'\\'):'';
+        };
+        const dtstart=get('DTSTART');
+        let date='', time='';
+        if(/^\d{8}T\d{6}/.test(dtstart)){
+          date=dtstart.slice(0,4)+'-'+dtstart.slice(4,6)+'-'+dtstart.slice(6,8);
+          time=roundTime5(dtstart.slice(9,11)+':'+dtstart.slice(11,13));
+        }else if(/^\d{8}/.test(dtstart)){
+          date=dtstart.slice(0,4)+'-'+dtstart.slice(4,6)+'-'+dtstart.slice(6,8);
+        }
+        if(!date) return;
+        const summary=get('SUMMARY');
+        const desc=get('DESCRIPTION');
+        // 從 SUMMARY 盡量拆出 類型 / 地段 / 地號
+        let type='其他', sec='', no='';
+        const sm=summary.replace(/^\d{1,2}:\d{2}\s*/,'').trim(); // 去掉開頭時間
+        const types=['鑑界','地籍測量','土地複丈','分割','合併'];
+        for(const t of types){if(sm.startsWith(t)){type=t;break}}
+        const rest=sm.replace(new RegExp('^'+(type==='其他'?'':type)+'\\s*'),'').trim();
+        const parts=rest.split(/\s+/);
+        if(parts.length>=2){sec=parts[0];no=parts.slice(1).join(' ')}
+        else if(parts.length===1){no=parts[0]}
+        let name='', member='', loc='', note='';
+        desc.split(/\n/).forEach(line=>{
+          if(/^申請人[：:]/.test(line)) name=line.replace(/^申請人[：:]\s*/,'');
+          else if(/^(承辦測量員|組員)[：:]/.test(line)) member=line.replace(/^(承辦測量員|組員)[：:]\s*/,'');
+          else if(/^位置[：:]/.test(line)) loc=line.replace(/^位置[：:]\s*/,'');
+          else if(/^備註[：:]/.test(line)) note=line.replace(/^備註[：:]\s*/,'');
+        });
+        cases.push({id:uid(),date,time,type,sec,no,name,member,loc,note,lat:null,lng:null,created:Date.now()});
+        n++;
+      });
+      saveCases();renderCal();renderCaseList();
+      toast(n?`已從 ICS 匯入 ${n} 筆案件`:'ICS 中沒有找到可用的事件');
     }else{
       const o=JSON.parse(text);
       if(o.cases){cases=o.cases;saveCases()}
