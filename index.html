@@ -170,7 +170,9 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px}
           <option>其他</option>
         </select>
       </label>
-      <label>承辦測量員<input type="text" id="cf_member" placeholder="可選"></label>
+      <label>承辦測量員
+        <select id="cf_member"><option value="">未指定</option></select>
+      </label>
     </div>
     <div class="form-row">
       <label>地段<input type="text" id="cf_sec" placeholder="例如：新生段"></label>
@@ -183,7 +185,7 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px}
       <label style="flex:2">申請人姓名<input type="text" id="cf_name" placeholder="申請人"></label>
     </div>
     <div class="form-row">
-      <label style="flex:2">位置 / 座標<input type="text" id="cf_loc" placeholder="地址或 N/E 座標（定位後可自動填入）"></label>
+      <label style="flex:2">位置 / 座標（僅來自已匯入地籍，不臆造）<input type="text" id="cf_loc" placeholder="填好地段地號後自動帶入，或按上方定位" readonly></label>
     </div>
     <div class="form-row">
       <label style="flex:2">備註<textarea id="cf_note" rows="2" placeholder="現場注意事項、聯絡電話等"></textarea></label>
@@ -192,6 +194,27 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px}
       <button id="cfsave" class="ok">儲存</button>
       <button type="button" id="cfnav">Google 導航</button>
       <button id="cfcancel">取消</button>
+    </div>
+  </div>
+
+  <div style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">
+    <h3>預設設定</h3>
+    <p>新增案件時自動帶入預設時段與測量員。測量員名單會出現在下拉選單。</p>
+    <div class="form-row">
+      <label>預設時間
+        <select id="set_time"><option value="">未定</option></select>
+      </label>
+      <label>預設測量員
+        <select id="set_member"><option value="">未指定</option></select>
+      </label>
+    </div>
+    <div class="form-row">
+      <label style="flex:2">測量員名單（逗號分隔）
+        <input type="text" id="set_members" placeholder="例如：王小明, 陳大同, 林美華">
+      </label>
+    </div>
+    <div class="form-actions">
+      <button id="set_save" class="ok">儲存設定</button>
     </div>
   </div>
 
@@ -648,6 +671,52 @@ let editId=null;
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
 function saveCases(){files.__cases=JSON.stringify(cases);dbSet('__cases',files.__cases)}
 function loadCases(){try{cases=JSON.parse(files.__cases||'[]')}catch(e){cases=[]}}
+let settings={defaultTime:'',defaultMember:'',members:[]};
+function saveSettings(){files.__settings=JSON.stringify(settings);dbSet('__settings',files.__settings)}
+function loadSettings(){
+  try{settings=Object.assign({defaultTime:'',defaultMember:'',members:[]},JSON.parse(files.__settings||'{}'))}catch(e){settings={defaultTime:'',defaultMember:'',members:[]}}
+  if(!Array.isArray(settings.members)) settings.members=[];
+}
+function fillMemberSelects(){
+  const opts=['<option value="">未指定</option>'].concat(settings.members.map(m=>`<option value="${m.replace(/"/g,'&quot;')}">${m}</option>`));
+  const html=opts.join('');
+  const cur1=$('#cf_member')?$('#cf_member').value:'';
+  const cur2=$('#set_member')?$('#set_member').value:'';
+  if($('#cf_member')){$('#cf_member').innerHTML=html; if(cur1) $('#cf_member').value=cur1}
+  if($('#set_member')){$('#set_member').innerHTML=html; if(cur2) $('#set_member').value=cur2}
+}
+function fillSetTimeOptions(){
+  const sel=$('#set_time');
+  if(!sel||sel.options.length>1) return;
+  for(let h=8;h<=17;h++){
+    for(let m=0;m<60;m+=5){
+      if(h===17&&m>0) break;
+      const v=String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
+      sel.add(new Option(v,v));
+    }
+  }
+}
+/** 僅從已匯入地籍資料帶入位置與座標，絕不臆造 */
+function autoFillLocFromCadastral(force){
+  const sec=$('#cf_sec').value.trim(), no=$('#cf_no').value.trim();
+  if(!sec && !no) return false;
+  const it=findItemBySecNo(sec, no);
+  if(!it || !it.center){
+    if(force) toast('已匯入的地籍資料中找不到此段號，無法帶入座標');
+    return false;
+  }
+  window._caseLat=it.center.lat;
+  window._caseLng=it.center.lng;
+  if(it.kind==='p'){
+    const tt=tm2(it.center.lat,it.center.lng);
+    $('#cf_loc').value=`N${tt.n} E${tt.e}（WGS84 ${it.center.lat.toFixed(7)}, ${it.center.lng.toFixed(7)}）`;
+  }else{
+    $('#cf_loc').value=`${it.sec||''} ${it.name||''}｜中心 WGS84 ${it.center.lat.toFixed(7)}, ${it.center.lng.toFixed(7)}`.trim();
+  }
+  if(!sec && it.sec) $('#cf_sec').value=it.sec;
+  if(!no && it.name) $('#cf_no').value=it.name;
+  return true;
+}
 
 /** 依地段 + 地號在已匯入資料中找對應地號／圖根點 */
 function findItemBySecNo(sec, no){
@@ -720,20 +789,31 @@ function fillTimeOptions(){
 function openCaseForm(prefill){
   editId=prefill&&prefill.id||null;
   fillTimeOptions();
+  fillMemberSelects();
   $('#cformTitle').textContent=editId?'編輯案件':'新增案件';
   $('#cf_date').value=prefill?.date||selDate||new Date().toISOString().slice(0,10);
-  const t=roundTime5(prefill?.time)||'';
+  // 新增時用預設時間／測量員；編輯時用原值
+  const t=roundTime5(prefill?.time) || (!editId && settings.defaultTime) || '';
   $('#cf_time').value=t;
   $('#cf_type').value=prefill?.type||'鑑界';
   $('#cf_sec').value=prefill?.sec||'';
   $('#cf_no').value=prefill?.no||'';
   $('#cf_name').value=prefill?.name||'';
-  $('#cf_member').value=prefill?.member||'';
+  const mem=prefill?.member || (!editId && settings.defaultMember) || '';
+  $('#cf_member').value=mem;
+  // 若名單裡沒有此測量員，暫時加進選單以顯示
+  if(mem && settings.members.indexOf(mem)<0){
+    $('#cf_member').add(new Option(mem,mem));
+    $('#cf_member').value=mem;
+  }
   $('#cf_loc').value=prefill?.loc||'';
   $('#cf_note').value=prefill?.note||'';
-  // 暫存座標供導航用
-  window._caseLat=prefill?.lat||null;
-  window._caseLng=prefill?.lng||null;
+  window._caseLat=prefill?.lat!=null?prefill.lat:null;
+  window._caseLng=prefill?.lng!=null?prefill.lng:null;
+  // 有地段地號但尚無座標時，嘗試從地籍自動帶入
+  if((prefill?.sec||prefill?.no) && (window._caseLat==null)){
+    autoFillLocFromCadastral(false);
+  }
   $('#cform').style.display='block';
   $('#cform').scrollIntoView({behavior:'smooth',block:'nearest'});
 }
@@ -828,6 +908,7 @@ $('#casebtn').onclick=()=>{
   const now=new Date();
   if(calY===undefined){calY=now.getFullYear();calM=now.getMonth();selDate=now.toISOString().slice(0,10)}
   renderCal();renderCaseList();
+  refreshSettingsUI();
   $('#cpanel').style.display='flex';
 };
 $('#cclose').onclick=()=>{$('#cpanel').style.display='none';closeCaseForm()};
@@ -841,32 +922,24 @@ $('#cfloc').onclick=()=>{
   const it=findItemBySecNo(sec, no);
   if(!it){
     toast('找不到對應地號，請確認已匯入 KML 或地段地號是否正確');
+    window._caseLat=null; window._caseLng=null;
     return;
   }
-  // 自動補齊欄位
-  if(!sec && it.sec) $('#cf_sec').value=it.sec;
-  if(!no && it.name) $('#cf_no').value=it.name;
-  if(it.center){
-    window._caseLat=it.center.lat;
-    window._caseLng=it.center.lng;
-  }
-  if(!$('#cf_loc').value){
-    if(it.kind==='p'){
-      const tt=tm2(it.center.lat,it.center.lng);
-      $('#cf_loc').value=`N${tt.n} E${tt.e}`;
-    }else{
-      $('#cf_loc').value=(it.sec?it.sec+' ':'')+(it.name||'');
-    }
-  }
-  // 定位但不關閉面板，方便繼續編輯
+  autoFillLocFromCadastral(true);
   const curSec=$('#sec').value;
   if(it.kind==='c' && curSec && it.sec!==curSec){
     $('#sec').value=it.sec;
     applySec(false);
   }
   select(it, true);
-  toast('已定位並可繼續編輯案件');
+  toast('已從地籍資料帶入座標並定位');
 };
+// 地段／地號輸入完畢後自動帶入真實座標（僅限已匯入資料）
+['cf_sec','cf_no'].forEach(id=>{
+  const el=$('#'+id);
+  if(el) el.addEventListener('change',()=>autoFillLocFromCadastral(false));
+  if(el) el.addEventListener('blur',()=>autoFillLocFromCadastral(false));
+});
 $('#cfnav').onclick=()=>{
   if(window._caseLat!=null && window._caseLng!=null){
     openGMapsNav(window._caseLat, window._caseLng, ($('#cf_sec').value+' '+$('#cf_no').value).trim());
@@ -885,6 +958,8 @@ $('#cfnav').onclick=()=>{
 $('#cfsave').onclick=()=>{
   const date=$('#cf_date').value;
   if(!date){alert('請選擇日期');return}
+  // 儲存前再從地籍確認一次座標（不臆造）
+  autoFillLocFromCadastral(false);
   let time=roundTime5($('#cf_time').value);
   const obj={
     id:editId||uid(),
@@ -897,14 +972,14 @@ $('#cfsave').onclick=()=>{
     member:$('#cf_member').value.trim(),
     loc:$('#cf_loc').value.trim(),
     note:$('#cf_note').value.trim(),
-    lat:window._caseLat!=null?window._caseLat:null,
-    lng:window._caseLng!=null?window._caseLng:null,
+    lat:window._caseLat!=null?+window._caseLat:null,
+    lng:window._caseLng!=null?+window._caseLng:null,
     created:editId?(cases.find(c=>c.id===editId)?.created||Date.now()):Date.now()
   };
-  // 若沒有座標，嘗試從地籍資料補上
   if(obj.lat==null){
     const it=findItemBySecNo(obj.sec,obj.no);
     if(it&&it.center){obj.lat=it.center.lat;obj.lng=it.center.lng}
+    else {obj.lat=null;obj.lng=null}
   }
   if(editId){const i=cases.findIndex(c=>c.id===editId);if(i>=0)cases[i]=obj}
   else cases.push(obj);
@@ -914,6 +989,31 @@ $('#cfsave').onclick=()=>{
   closeCaseForm();renderCal();renderCaseList();
   toast(editId?'已更新案件':'已新增案件');
 };
+$('#set_save').onclick=()=>{
+  const raw=$('#set_members').value||'';
+  settings.members=raw.split(/[,，、]/).map(s=>s.trim()).filter(Boolean);
+  // 去重
+  settings.members=[...new Set(settings.members)];
+  settings.defaultTime=$('#set_time').value||'';
+  settings.defaultMember=$('#set_member').value||'';
+  // 若預設測量員不在名單，一併加入
+  if(settings.defaultMember && settings.members.indexOf(settings.defaultMember)<0){
+    settings.members.push(settings.defaultMember);
+  }
+  saveSettings();
+  fillMemberSelects();
+  $('#set_members').value=settings.members.join(', ');
+  $('#set_time').value=settings.defaultTime;
+  $('#set_member').value=settings.defaultMember;
+  toast('已儲存預設設定');
+};
+function refreshSettingsUI(){
+  fillSetTimeOptions();
+  fillMemberSelects();
+  $('#set_members').value=(settings.members||[]).join(', ');
+  $('#set_time').value=settings.defaultTime||'';
+  $('#set_member').value=settings.defaultMember||'';
+}
 
 /* 匯出 / 匯入案件 */
 function download(name,blob){
@@ -1083,6 +1183,7 @@ $('#cclr').onclick=()=>{if(confirm('確定清除所有案件記錄？')){cases=[
   if(pe){try{emb=JSON.parse(pe.textContent)}catch(e){}}
   files={...emb,...await dbAll()};
   loadCases();
+  loadSettings();
   if(Object.keys(files).filter(k=>!k.startsWith('__')).length)refresh();
   else $('#panel').style.display='flex';
 })();
