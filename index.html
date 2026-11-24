@@ -698,7 +698,7 @@ function fillSetTimeOptions(){
 /** 僅從已匯入地籍資料帶入位置與座標，絕不臆造 */
 function autoFillLocFromCadastral(force){
   const sec=$('#cf_sec').value.trim(), no=$('#cf_no').value.trim();
-  if(!sec && !no) return false;
+  if(!no) return false; // 尚未輸入地號，不自動帶入
   const it=findItemBySecNo(sec, no);
   if(!it || !it.center){
     if(force) toast('已匯入的地籍資料中找不到此段號，無法帶入座標');
@@ -720,7 +720,7 @@ function autoFillLocFromCadastral(force){
 /** 依地段 + 地號在已匯入資料中找對應地號／圖根點 */
 function findItemBySecNo(sec, no){
   const ns=norm(sec||''), nn=norm(no||'');
-  if(!nn && !ns) return null;
+  if(!nn) return null; // 地號未輸入時不比對，避免空字串 includes('') 誤中第一筆（圖根點）
   // 優先：地段 + 地號都相符
   let hit=items.find(it=>it.kind==='c' && (!ns || it.nsec===ns || norm(it.sec)===ns) && it.key===nn);
   if(hit) return hit;
