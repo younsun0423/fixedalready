@@ -155,6 +155,11 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px}
     <h3 id="cformTitle">新增案件</h3>
     <div class="form-row">
       <label>日期<input type="date" id="cf_date"></label>
+      <label>時間（08:00–17:00）
+        <select id="cf_time"><option value="">未定</option></select>
+      </label>
+    </div>
+    <div class="form-row">
       <label>案件類型
         <select id="cf_type">
           <option>鑑界</option>
@@ -165,6 +170,7 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px}
           <option>其他</option>
         </select>
       </label>
+      <label>承辦測量員<input type="text" id="cf_member" placeholder="可選"></label>
     </div>
     <div class="form-row">
       <label>地段<input type="text" id="cf_sec" placeholder="例如：新生段"></label>
@@ -174,8 +180,7 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px}
       <button type="button" id="cfloc" class="on" style="width:100%">◎ 依地段地號定位到地圖</button>
     </div>
     <div class="form-row">
-      <label>申請人姓名<input type="text" id="cf_name" placeholder="申請人"></label>
-      <label>負責組員<input type="text" id="cf_member" placeholder="可選"></label>
+      <label style="flex:2">申請人姓名<input type="text" id="cf_name" placeholder="申請人"></label>
     </div>
     <div class="form-row">
       <label style="flex:2">位置 / 座標<input type="text" id="cf_loc" placeholder="地址或 N/E 座標（定位後可自動填入）"></label>
@@ -185,6 +190,7 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px}
     </div>
     <div class="form-actions">
       <button id="cfsave" class="ok">儲存</button>
+      <button type="button" id="cfnav">Google 導航</button>
       <button id="cfcancel">取消</button>
     </div>
   </div>
@@ -390,15 +396,21 @@ function select(it,zoom){
   addBtn.className='on';
   addBtn.textContent='＋ 加入今日案件';
   addBtn.onclick=()=>{
-    const today=new Date().toISOString().slice(0,10);
+    const now=new Date();
+    const today=now.toISOString().slice(0,10);
+    const hh=String(now.getHours()).padStart(2,'0');
+    const mm=String(Math.round(now.getMinutes()/5)*5%60).padStart(2,'0');
     openCaseForm({
       date:today,
+      time:hh+':'+mm,
       type:'鑑界',
       sec:it.sec||'',
       no:it.name||'',
       name:'',
       member:'',
       loc: it.kind==='p' ? `N${tm2(it.center.lat,it.center.lng).n} E${tm2(it.center.lat,it.center.lng).e}` : (it.sec?it.sec+' ':'')+(it.name||''),
+      lat:it.center.lat,
+      lng:it.center.lng,
       note:''
     });
     $('#cpanel').style.display='flex';
@@ -671,10 +683,37 @@ function locateCase(c, closePanel=true){
   toast('已定位：'+(it.sec?it.sec+' ':'')+(it.name||''));
 }
 
+function roundTime5(t){
+  if(!t) return '';
+  const m=String(t).match(/^(\d{1,2}):(\d{2})/);
+  if(!m) return t;
+  let h=+m[1], mi=+m[2];
+  mi=Math.round(mi/5)*5;
+  if(mi===60){mi=0;h=(h+1)%24}
+  const s=String(h).padStart(2,'0')+':'+String(mi).padStart(2,'0');
+  // 限制在 08:00–17:00
+  if(s<'08:00') return '08:00';
+  if(s>'17:00') return '17:00';
+  return s;
+}
+function fillTimeOptions(){
+  const sel=$('#cf_time');
+  if(sel.options.length>1) return; // 已填過
+  for(let h=8;h<=17;h++){
+    for(let m=0;m<60;m+=5){
+      if(h===17 && m>0) break;
+      const v=String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
+      sel.add(new Option(v,v));
+    }
+  }
+}
 function openCaseForm(prefill){
   editId=prefill&&prefill.id||null;
+  fillTimeOptions();
   $('#cformTitle').textContent=editId?'編輯案件':'新增案件';
   $('#cf_date').value=prefill?.date||selDate||new Date().toISOString().slice(0,10);
+  const t=roundTime5(prefill?.time)||'';
+  $('#cf_time').value=t;
   $('#cf_type').value=prefill?.type||'鑑界';
   $('#cf_sec').value=prefill?.sec||'';
   $('#cf_no').value=prefill?.no||'';
@@ -682,6 +721,9 @@ function openCaseForm(prefill){
   $('#cf_member').value=prefill?.member||'';
   $('#cf_loc').value=prefill?.loc||'';
   $('#cf_note').value=prefill?.note||'';
+  // 暫存座標供導航用
+  window._caseLat=prefill?.lat||null;
+  window._caseLng=prefill?.lng||null;
   $('#cform').style.display='block';
   $('#cform').scrollIntoView({behavior:'smooth',block:'nearest'});
 }
@@ -713,19 +755,42 @@ function renderCal(){
     grid.appendChild(d);
   }
 }
+function openGMapsNav(lat,lng,label){
+  let url;
+  if(lat!=null && lng!=null && !isNaN(lat) && !isNaN(lng)){
+    url=`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
+  }else if(label){
+    url=`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(label)}&travelmode=driving`;
+  }else{
+    toast('沒有可用的位置資料，請先定位地號或填寫位置');
+    return;
+  }
+  window.open(url,'_blank');
+}
+function getCaseCoords(c){
+  if(c && c.lat!=null && c.lng!=null) return {lat:+c.lat,lng:+c.lng};
+  const it=findItemBySecNo(c?.sec,c?.no);
+  if(it && it.center) return {lat:it.center.lat,lng:it.center.lng};
+  return null;
+}
 function renderCaseList(){
   const list=$('#clist');list.innerHTML='';
   $('#cdayTitle').textContent=selDate?`${selDate} 的案件`:'請選擇日期';
   if(!selDate){list.innerHTML='<p class="sm">點選上方日期查看當日案件</p>';return}
-  const day=cases.filter(c=>c.date===selDate).sort((a,b)=>a.created-b.created);
+  const day=cases.filter(c=>c.date===selDate).sort((a,b)=>{
+    const ta=a.time||'99:99', tb=b.time||'99:99';
+    return ta.localeCompare(tb)||(a.created-b.created);
+  });
   if(!day.length){list.innerHTML='<p class="sm">這天還沒有案件，按「＋ 新增案件」開始記錄</p>';return}
   day.forEach(c=>{
     const card=document.createElement('div');card.className='case-card';
     const canLocate=!!(c.sec||c.no);
-    card.innerHTML=`<div class="t">${c.type} <span class="badge">${c.sec||''} ${c.no||''}</span></div>
-      <div class="m">申請人：${c.name||'—'}　組員：${c.member||'—'}<br>位置：${c.loc||'—'}<br>${c.note?('備註：'+c.note):''}</div>
+    const timeStr=c.time?`<span style="color:var(--acc);font-weight:700;margin-right:6px">${c.time}</span>`:'';
+    card.innerHTML=`<div class="t">${timeStr}${c.type} <span class="badge">${c.sec||''} ${c.no||''}</span></div>
+      <div class="m">申請人：${c.name||'—'}　承辦測量員：${c.member||'—'}<br>位置：${c.loc||'—'}<br>${c.note?('備註：'+c.note):''}</div>
       <div class="acts">
         ${canLocate?'<button data-id="'+c.id+'" class="cloc on">定位</button>':''}
+        <button data-id="${c.id}" class="cnav">導航</button>
         <button data-id="${c.id}" class="cedit">編輯</button>
         <button data-id="${c.id}" class="cdel">刪除</button>
       </div>`;
@@ -733,6 +798,12 @@ function renderCaseList(){
   });
   list.querySelectorAll('.cloc').forEach(b=>b.onclick=()=>{
     const c=cases.find(x=>x.id===b.dataset.id);if(c)locateCase(c,true);
+  });
+  list.querySelectorAll('.cnav').forEach(b=>b.onclick=()=>{
+    const c=cases.find(x=>x.id===b.dataset.id);if(!c)return;
+    const co=getCaseCoords(c);
+    if(co) openGMapsNav(co.lat,co.lng,(c.sec||'')+' '+(c.no||''));
+    else openGMapsNav(null,null,c.loc||((c.sec||'')+' '+(c.no||'')));
   });
   list.querySelectorAll('.cedit').forEach(b=>b.onclick=()=>{
     const c=cases.find(x=>x.id===b.dataset.id);if(c)openCaseForm(c);
@@ -765,6 +836,10 @@ $('#cfloc').onclick=()=>{
   // 自動補齊欄位
   if(!sec && it.sec) $('#cf_sec').value=it.sec;
   if(!no && it.name) $('#cf_no').value=it.name;
+  if(it.center){
+    window._caseLat=it.center.lat;
+    window._caseLng=it.center.lng;
+  }
   if(!$('#cf_loc').value){
     if(it.kind==='p'){
       const tt=tm2(it.center.lat,it.center.lng);
@@ -782,12 +857,29 @@ $('#cfloc').onclick=()=>{
   select(it, true);
   toast('已定位並可繼續編輯案件');
 };
+$('#cfnav').onclick=()=>{
+  if(window._caseLat!=null && window._caseLng!=null){
+    openGMapsNav(window._caseLat, window._caseLng, ($('#cf_sec').value+' '+$('#cf_no').value).trim());
+    return;
+  }
+  const sec=$('#cf_sec').value.trim(), no=$('#cf_no').value.trim();
+  const it=findItemBySecNo(sec, no);
+  if(it && it.center){
+    openGMapsNav(it.center.lat, it.center.lng, (it.sec||'')+' '+(it.name||''));
+    return;
+  }
+  const loc=$('#cf_loc').value.trim();
+  if(loc) openGMapsNav(null,null,loc);
+  else toast('請先定位地號或填寫位置後再導航');
+};
 $('#cfsave').onclick=()=>{
   const date=$('#cf_date').value;
   if(!date){alert('請選擇日期');return}
+  let time=roundTime5($('#cf_time').value);
   const obj={
     id:editId||uid(),
     date,
+    time,
     type:$('#cf_type').value,
     sec:$('#cf_sec').value.trim(),
     no:$('#cf_no').value.trim(),
@@ -795,8 +887,15 @@ $('#cfsave').onclick=()=>{
     member:$('#cf_member').value.trim(),
     loc:$('#cf_loc').value.trim(),
     note:$('#cf_note').value.trim(),
+    lat:window._caseLat!=null?window._caseLat:null,
+    lng:window._caseLng!=null?window._caseLng:null,
     created:editId?(cases.find(c=>c.id===editId)?.created||Date.now()):Date.now()
   };
+  // 若沒有座標，嘗試從地籍資料補上
+  if(obj.lat==null){
+    const it=findItemBySecNo(obj.sec,obj.no);
+    if(it&&it.center){obj.lat=it.center.lat;obj.lng=it.center.lng}
+  }
   if(editId){const i=cases.findIndex(c=>c.id===editId);if(i>=0)cases[i]=obj}
   else cases.push(obj);
   saveCases();
@@ -813,8 +912,8 @@ function download(name,blob){
 }
 $('#cexpCsv').onclick=()=>{
   if(!cases.length){toast('目前沒有案件');return}
-  const header=['日期','案件類型','地段','地號','申請人','組員','位置','備註'];
-  const rows=cases.slice().sort((a,b)=>a.date.localeCompare(b.date)).map(c=>[c.date,c.type,c.sec,c.no,c.name,c.member,c.loc,c.note].map(v=>`"${String(v||'').replace(/"/g,'""')}"`).join(','));
+  const header=['日期','時間','案件類型','地段','地號','申請人','承辦測量員','位置','備註','緯度','經度'];
+  const rows=cases.slice().sort((a,b)=>a.date.localeCompare(b.date)||(a.time||'').localeCompare(b.time||'')).map(c=>[c.date,c.time||'',c.type,c.sec,c.no,c.name,c.member,c.loc,c.note,c.lat??'',c.lng??''].map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(','));
   const csv='\uFEFF'+header.join(',')+'\n'+rows.join('\n');
   download(`案件_${new Date().toISOString().slice(0,10)}.csv`,new Blob([csv],{type:'text/csv;charset=utf-8'}));
   toast('已匯出 CSV，可直接用 Excel / Google 試算表開啟後分享');
@@ -825,9 +924,17 @@ $('#cexpIcs').onclick=()=>{
   let ics='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//地籍現場作業系統//ZH\r\nCALSCALE:GREGORIAN\r\n';
   cases.forEach(c=>{
     const dt=c.date.replace(/-/g,'');
-    const sum=`${c.type} ${c.sec||''} ${c.no||''}`.trim();
-    const desc=`申請人：${c.name||''}\\n組員：${c.member||''}\\n位置：${c.loc||''}\\n備註：${c.note||''}`;
-    ics+=`BEGIN:VEVENT\r\nUID:${c.id}@cadastral\r\nDTSTAMP:${new Date().toISOString().replace(/[-:]/g,'').slice(0,15)}Z\r\nDTSTART;VALUE=DATE:${dt}\r\nSUMMARY:${esc(sum)}\r\nDESCRIPTION:${esc(desc)}\r\nEND:VEVENT\r\n`;
+    const tm=(c.time||'09:00').replace(':','')+'00';
+    const sum=`${c.time?c.time+' ':''}${c.type} ${c.sec||''} ${c.no||''}`.trim();
+    const desc=`申請人：${c.name||''}\\n承辦測量員：${c.member||''}\\n位置：${c.loc||''}\\n備註：${c.note||''}`;
+    // 有時間用 DATETIME（本地），沒有則用全天
+    let dtstart;
+    if(c.time){
+      dtstart=`DTSTART:${dt}T${tm}`;
+    }else{
+      dtstart=`DTSTART;VALUE=DATE:${dt}`;
+    }
+    ics+=`BEGIN:VEVENT\r\nUID:${c.id}@cadastral\r\nDTSTAMP:${new Date().toISOString().replace(/[-:]/g,'').slice(0,15)}Z\r\n${dtstart}\r\nSUMMARY:${esc(sum)}\r\nDESCRIPTION:${esc(desc)}\r\nEND:VEVENT\r\n`;
   });
   ics+='END:VCALENDAR\r\n';
   download(`案件日曆_${new Date().toISOString().slice(0,10)}.ics`,new Blob([ics],{type:'text/calendar;charset=utf-8'}));
@@ -847,6 +954,8 @@ $('#cfile').onchange=async e=>{
   try{
     if(f.name.endsWith('.csv')||text.startsWith('日期')||text.startsWith('\uFEFF日期')){
       const lines=text.replace(/^\uFEFF/,'').trim().split(/\r?\n/);
+      const header=lines[0].split(',').map(h=>h.replace(/^"|"$/g,'').trim());
+      const hasTime=header.includes('時間');
       const body=lines.slice(1);
       let n=0;
       body.forEach(line=>{
@@ -859,7 +968,13 @@ $('#cfile').onchange=async e=>{
         }
         cols.push(cur);
         if(cols.length<4)return;
-        cases.push({id:uid(),date:cols[0],type:cols[1]||'其他',sec:cols[2]||'',no:cols[3]||'',name:cols[4]||'',member:cols[5]||'',loc:cols[6]||'',note:cols[7]||'',created:Date.now()});
+        // 新格式：日期,時間,類型,地段,地號,申請人,承辦測量員,位置,備註,緯度,經度
+        // 舊格式：日期,類型,地段,地號,申請人,組員,位置,備註
+        if(hasTime){
+          cases.push({id:uid(),date:cols[0],time:roundTime5(cols[1]||''),type:cols[2]||'其他',sec:cols[3]||'',no:cols[4]||'',name:cols[5]||'',member:cols[6]||'',loc:cols[7]||'',note:cols[8]||'',lat:cols[9]?+cols[9]:null,lng:cols[10]?+cols[10]:null,created:Date.now()});
+        }else{
+          cases.push({id:uid(),date:cols[0],time:'',type:cols[1]||'其他',sec:cols[2]||'',no:cols[3]||'',name:cols[4]||'',member:cols[5]||'',loc:cols[6]||'',note:cols[7]||'',lat:null,lng:null,created:Date.now()});
+        }
         n++;
       });
       saveCases();renderCal();renderCaseList();toast(`已從 CSV 匯入 ${n} 筆案件`);
