@@ -1010,22 +1010,53 @@ $('#cfile').onchange=async e=>{
         if(!date) return;
         const summary=get('SUMMARY');
         const desc=get('DESCRIPTION');
-        // 從 SUMMARY 盡量拆出 類型 / 地段 / 地號
-        let type='其他', sec='', no='';
-        const sm=summary.replace(/^\d{1,2}:\d{2}\s*/,'').trim(); // 去掉開頭時間
-        const types=['鑑界','地籍測量','土地複丈','分割','合併'];
-        for(const t of types){if(sm.startsWith(t)){type=t;break}}
-        const rest=sm.replace(new RegExp('^'+(type==='其他'?'':type)+'\\s*'),'').trim();
-        const parts=rest.split(/\s+/);
-        if(parts.length>=2){sec=parts[0];no=parts.slice(1).join(' ')}
-        else if(parts.length===1){no=parts[0]}
-        let name='', member='', loc='', note='';
+        // 智慧解析標題：類型縮寫 + 地段地號
+        // 例：(鑑)富民449地號、鑑界 新生段 123-4、(測)中山段45-1
+        let type='其他', sec='', no='', name='', member='', loc='', note='';
+        let sm=summary.replace(/^\d{1,2}:\d{2}\s*/,'').trim();
+
+        // 1) 類型：括號縮寫或完整名稱
+        const typeMap=[
+          [/\(鑑\)|【鑑】|［鑑］|鑑界/, '鑑界'],
+          [/\(測\)|【測】|［測］|地籍測量|測量/, '地籍測量'],
+          [/\(複\)|【複】|［複］|土地複丈|複丈/, '土地複丈'],
+          [/\(分\)|【分】|［分］|分割/, '分割'],
+          [/\(合\)|【合】|［合］|合併/, '合併']
+        ];
+        for(const [re,t] of typeMap){
+          if(re.test(sm)){type=t; sm=sm.replace(re,' ').replace(/\s+/g,' ').trim(); break}
+        }
+
+        // 2) 地段地號常見寫法
+        // 「XX段YYY地號」「XX段 YYY」「富民449地號」「新生段123-4」
+        let m=sm.match(/^(.+?段)\s*([0-9]+(?:-[0-9]+)?)\s*地?號?$/);
+        if(m){sec=m[1].trim(); no=m[2].trim()}
+        else{
+          m=sm.match(/^(.+?)\s+([0-9]+(?:-[0-9]+)?)\s*地?號?$/);
+          if(m){sec=m[1].trim(); no=m[2].trim()}
+          else{
+            // 「富民449地號」無「段」字
+            m=sm.match(/^([^\d\s]+?)\s*([0-9]+(?:-[0-9]+)?)\s*地?號?$/);
+            if(m){sec=m[1].trim(); no=m[2].trim()}
+            else{
+              // 純地號或剩餘文字當地號
+              m=sm.match(/([0-9]+(?:-[0-9]+)?)/);
+              if(m){no=m[1]; sec=sm.replace(m[1],'').replace(/地號/g,'').trim()}
+              else if(sm){no=sm}
+            }
+          }
+        }
+        // 地段若只寫「富民」自動補「段」較好讀（可選，保留原樣較安全）
+        // if(sec && !/段$/.test(sec)) sec=sec+'段';
+
         desc.split(/\n/).forEach(line=>{
           if(/^申請人[：:]/.test(line)) name=line.replace(/^申請人[：:]\s*/,'');
           else if(/^(承辦測量員|組員)[：:]/.test(line)) member=line.replace(/^(承辦測量員|組員)[：:]\s*/,'');
           else if(/^位置[：:]/.test(line)) loc=line.replace(/^位置[：:]\s*/,'');
           else if(/^備註[：:]/.test(line)) note=line.replace(/^備註[：:]\s*/,'');
         });
+        // DESCRIPTION 若整段是自由文字且沒結構化欄位，整段當備註
+        if(!name && !member && !loc && !note && desc.trim()) note=desc.trim();
         cases.push({id:uid(),date,time,type,sec,no,name,member,loc,note,lat:null,lng:null,created:Date.now()});
         n++;
       });
