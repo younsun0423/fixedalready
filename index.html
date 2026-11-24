@@ -3,22 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>地籍・圖根點現場查詢</title>
+<title>地籍現場作業系統 · 地圖 + 案件日曆</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <style>
-:root{--bg:#14211f;--panel:#1c2e2b;--line:#34504b;--ink:#eef3f1;--mute:#9db5af;--acc:#ffd23f;--pt:#ff5a4d}
+:root{--bg:#14211f;--panel:#1c2e2b;--line:#34504b;--ink:#eef3f1;--mute:#9db5af;--acc:#ffd23f;--pt:#ff5a4d;--ok:#4cc9a0}
 *{box-sizing:border-box}
 html,body{height:100%;margin:0;font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;background:var(--bg);color:var(--ink)}
 #map{position:absolute;inset:0;background:#222}
 .bar{position:absolute;z-index:1000;left:0;right:0;top:0;padding:calc(env(safe-area-inset-top,0px) + 8px) 8px 0;pointer-events:none}
 .bar>*{pointer-events:auto}
 .row{display:flex;gap:6px;max-width:560px}
-input[type=search]{flex:1;min-width:0;font-size:16px;padding:11px 12px;border-radius:8px;border:2px solid var(--line);background:var(--panel);color:var(--ink)}
-input[type=search]:focus,button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+input[type=search],input[type=text],input[type=date],select,textarea{flex:1;min-width:0;font-size:16px;padding:11px 12px;border-radius:8px;border:2px solid var(--line);background:var(--panel);color:var(--ink)}
+input:focus,button:focus-visible,select:focus,textarea:focus{outline:2px solid var(--acc);outline-offset:1px}
 button,.btn{font:inherit;font-size:14px;padding:10px 12px;border-radius:8px;border:2px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer;white-space:nowrap}
 button.on{background:var(--acc);color:#111;border-color:var(--acc)}
-select{flex:1;min-width:0;font-size:15px;padding:9px 10px;border-radius:8px;border:2px solid var(--line);background:var(--panel);color:var(--ink)}
+button.ok{background:var(--ok);color:#111;border-color:var(--ok)}
+select{flex:1;min-width:0;font-size:15px;padding:9px 10px}
 #results{position:absolute;left:8px;right:8px;max-width:560px;margin-top:6px;background:var(--panel);border:2px solid var(--line);border-radius:8px;max-height:45vh;overflow:auto;display:none}
 #results div{padding:10px 12px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:8px;cursor:pointer}
 #results div:last-child{border:0}
@@ -26,7 +27,7 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px;border-radius:8px;bord
 .tag{font-size:12px;color:#111;background:var(--acc);border-radius:4px;padding:1px 6px;align-self:center}
 .tag.p{background:var(--pt);color:#fff}
 .side{position:absolute;z-index:999;right:8px;top:calc(env(safe-area-inset-top,0px) + 64px);display:flex;flex-direction:column;gap:6px}
-.side button{width:44px;height:44px;padding:0;font-size:20px}
+.side button{width:44px;height:44px;padding:0;font-size:18px}
 #info{position:absolute;z-index:1000;left:8px;right:8px;bottom:calc(env(safe-area-inset-bottom,0px) + 8px);max-width:560px;background:var(--panel);border:2px solid var(--line);border-radius:10px;padding:10px 12px;display:none;max-height:40vh;overflow:auto}
 #ib{padding-right:40px}
 #info h3{margin:0 0 4px;font-size:18px}
@@ -45,22 +46,47 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px;border-radius:8px;bord
 #info td{padding:3px 6px 3px 0;border-top:1px solid var(--line);vertical-align:top}
 #info td:first-child{color:var(--mute);white-space:nowrap}
 #x{position:absolute;right:6px;top:6px;padding:2px 9px}
-#panel{position:absolute;z-index:1001;inset:0;background:rgba(10,18,16,.85);display:none;align-items:center;justify-content:center;padding:16px}
-#panel .box{background:var(--panel);border:2px solid var(--line);border-radius:12px;padding:16px;max-width:440px;width:100%;max-height:92vh;overflow:auto}
-#panel h3{margin:12px 0 4px;font-size:15px}
+#panel,#cpanel{position:absolute;z-index:1001;inset:0;background:rgba(10,18,16,.88);display:none;align-items:center;justify-content:center;padding:12px}
+#panel .box,#cpanel .box{background:var(--panel);border:2px solid var(--line);border-radius:12px;padding:16px;max-width:520px;width:100%;max-height:94vh;overflow:auto}
+#panel h3,#cpanel h3{margin:12px 0 4px;font-size:15px}
 .fr{display:flex;align-items:center;gap:6px;padding:5px 0;border-top:1px solid var(--line);font-size:13px}
 .fr input{flex:1;min-width:0;font-size:14px;padding:6px 8px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
 .fr button{padding:5px 10px;font-size:12px}
 .sm{color:var(--mute);font-size:12px;padding:0 0 4px}
 .sm.er{color:#ff8a80}
-#panel h2{margin:0 0 8px;font-size:18px}
-#panel p{color:var(--mute);font-size:14px;margin:6px 0}
+#panel h2,#cpanel h2{margin:0 0 8px;font-size:18px}
+#panel p,#cpanel p{color:var(--mute);font-size:14px;margin:6px 0}
 #files div{font-size:14px;padding:4px 0;display:flex;justify-content:space-between}
 .tl{background:rgba(20,33,31,.85)!important;border:0!important;color:#fff!important;font-size:12px;padding:1px 4px!important;box-shadow:none!important;text-shadow:0 0 3px #000}
 .tl:before{display:none!important}
 #map:not(.z18) .tl{display:none}
 #map:not(.z19) .pl{display:none}
 .me{width:16px;height:16px;border-radius:50%;background:#2a8cff;border:3px solid #fff;box-shadow:0 0 6px #000}
+
+/* 案件日曆 */
+.cal-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;text-align:center;font-size:13px}
+.cal-grid .hd{color:var(--mute);padding:4px 0}
+.cal-grid .d{padding:8px 2px;border-radius:6px;cursor:pointer;border:1px solid transparent}
+.cal-grid .d:hover{background:#27403c}
+.cal-grid .d.today{border-color:var(--acc)}
+.cal-grid .d.sel{background:var(--acc);color:#111;font-weight:700}
+.cal-grid .d.has{position:relative}
+.cal-grid .d.has::after{content:'';position:absolute;bottom:3px;left:50%;transform:translateX(-50%);width:5px;height:5px;border-radius:50%;background:var(--pt)}
+.cal-grid .d.other{opacity:.35}
+.case-list{margin-top:12px}
+.case-card{background:#0f1a18;border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:8px}
+.case-card .t{font-weight:600;margin-bottom:4px}
+.case-card .m{font-size:13px;color:var(--mute);line-height:1.45}
+.case-card .acts{display:flex;gap:6px;margin-top:8px}
+.case-card .acts button{padding:5px 10px;font-size:12px}
+.form-row{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.form-row label{display:flex;flex-direction:column;gap:3px;flex:1;min-width:120px;font-size:13px;color:var(--mute)}
+.form-row input,.form-row select,.form-row textarea{padding:8px 10px;font-size:15px}
+.form-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--acc);color:#111;padding:10px 18px;border-radius:8px;font-size:14px;z-index:2000;display:none;max-width:90vw;text-align:center}
+.badge{display:inline-block;background:var(--pt);color:#fff;font-size:11px;padding:1px 6px;border-radius:4px;margin-left:4px}
+#addFromMap{margin-top:8px}
 </style>
 </head>
 <body>
@@ -82,6 +108,7 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px;border-radius:8px;bord
   <button id="loc" title="我的位置" aria-label="我的位置">◎</button>
   <button id="base" title="切換底圖" aria-label="切換底圖">🛰</button>
   <button id="pbtn" title="疊加國土測繪中心 段籍圖層" aria-label="段籍">段籍</button>
+  <button id="casebtn" title="案件日曆" aria-label="案件日曆">📅</button>
   <button id="zin" aria-label="放大">＋</button>
   <button id="zout" aria-label="縮小">－</button>
 </div>
@@ -89,6 +116,7 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px;border-radius:8px;bord
 <div id="me"><div class="mr"><small>我的位置 N</small><b id="meN"></b></div><div class="mr"><small>E</small><b id="meE"></b></div><small id="meA"></small></div>
 <div id="info"><button id="x" aria-label="關閉">✕</button><div id="ib"></div></div>
 
+<!-- 匯入面板 -->
 <div id="panel"><div class="box">
   <h2>匯入 KML 檔</h2>
   <p>可一次選多個檔，也可直接選 .zip 資料包。選好後會先列在「待匯入」，確認無誤再按「確認匯入」。地段取自屬性欄位（如「地段」「段名」），沒有的話取 KML 資料夾名稱，再沒有就用檔名。含「點」的歸為圖根點，含「面／線」的歸為地籍圖。資料只存在這支手機／電腦的瀏覽器裡，不會上傳。</p>
@@ -102,6 +130,81 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px;border-radius:8px;bord
   <p id="msg"></p>
 </div></div>
 
+<!-- 案件日曆面板 -->
+<div id="cpanel"><div class="box">
+  <div class="cal-head">
+    <h2 style="margin:0">案件日曆</h2>
+    <button id="cclose">關閉</button>
+  </div>
+  <p style="margin-top:0">記錄每日案件類型、地段地號、申請人、位置。可匯出 CSV／ICS 分享給組員，或整包匯入。</p>
+
+  <div class="cal-head">
+    <button id="cprev">‹</button>
+    <b id="cym"></b>
+    <button id="cnext">›</button>
+  </div>
+  <div class="cal-grid" id="cgrid"></div>
+
+  <div class="cal-head" style="margin-top:14px">
+    <h3 style="margin:0" id="cdayTitle">選擇日期</h3>
+    <button id="cadd" class="on">＋ 新增案件</button>
+  </div>
+  <div class="case-list" id="clist"></div>
+
+  <div id="cform" style="display:none;margin-top:12px;border-top:1px solid var(--line);padding-top:12px">
+    <h3 id="cformTitle">新增案件</h3>
+    <div class="form-row">
+      <label>日期<input type="date" id="cf_date"></label>
+      <label>案件類型
+        <select id="cf_type">
+          <option>鑑界</option>
+          <option>地籍測量</option>
+          <option>土地複丈</option>
+          <option>分割</option>
+          <option>合併</option>
+          <option>其他</option>
+        </select>
+      </label>
+    </div>
+    <div class="form-row">
+      <label>地段<input type="text" id="cf_sec" placeholder="例如：新生段"></label>
+      <label>地號<input type="text" id="cf_no" placeholder="例如：123-4"></label>
+    </div>
+    <div class="form-row" style="margin-top:-4px">
+      <button type="button" id="cfloc" class="on" style="width:100%">◎ 依地段地號定位到地圖</button>
+    </div>
+    <div class="form-row">
+      <label>申請人姓名<input type="text" id="cf_name" placeholder="申請人"></label>
+      <label>負責組員<input type="text" id="cf_member" placeholder="可選"></label>
+    </div>
+    <div class="form-row">
+      <label style="flex:2">位置 / 座標<input type="text" id="cf_loc" placeholder="地址或 N/E 座標（定位後可自動填入）"></label>
+    </div>
+    <div class="form-row">
+      <label style="flex:2">備註<textarea id="cf_note" rows="2" placeholder="現場注意事項、聯絡電話等"></textarea></label>
+    </div>
+    <div class="form-actions">
+      <button id="cfsave" class="ok">儲存</button>
+      <button id="cfcancel">取消</button>
+    </div>
+  </div>
+
+  <div style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">
+    <h3>分享給組員</h3>
+    <p>把案件匯出成檔案傳給另外兩位，他們用「匯入案件」即可同步。也可匯出 ICS 直接加入 Google 日曆 / Outlook。</p>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button id="cexpCsv">匯出 CSV</button>
+      <button id="cexpIcs">匯出 ICS 日曆</button>
+      <button id="cexpAll">匯出完整資料包</button>
+      <button id="cimp">匯入案件 / 資料包</button>
+      <button id="cclr" style="color:#ff9a8f">清除所有案件</button>
+    </div>
+    <input id="cfile" type="file" accept=".json,.csv,.txt,.ics" hidden>
+  </div>
+</div></div>
+
+<div class="toast" id="toast"></div>
+
 <script>
 const $=s=>document.querySelector(s);
 const map=L.map('map',{zoomControl:false,renderer:L.canvas({tolerance:14}),maxZoom:21}).setView([23.0,121.15],12);
@@ -114,7 +217,8 @@ const bases=[
 let bi=0;bases[0][1].addTo(map);
 $('#base').onclick=()=>{map.removeLayer(bases[bi][1]);bi=(bi+1)%bases.length;bases[bi][1].addTo(map).bringToBack();toast(bases[bi][0])};
 $('#zin').onclick=()=>map.zoomIn();$('#zout').onclick=()=>map.zoomOut();
-function toast(t){const m=$('#msg');m.textContent=t;}
+
+function toast(t,ms=2800){const m=$('#toast');m.textContent=t;m.style.display='block';clearTimeout(m._t);m._t=setTimeout(()=>m.style.display='none',ms)}
 
 /* ---------- 資料 ---------- */
 const parcelLayer=L.featureGroup().addTo(map), ptLayer=L.featureGroup().addTo(map);
@@ -194,7 +298,6 @@ function clearSel(){if(selMk){map.removeLayer(selMk);selMk=null}}
 const svgSel=L.svg();
 function showSel(it){clearSel();selMk=L.polygon(it.polys,{color:'#ff5a4d',weight:4,fillColor:'#ffd23f',fillOpacity:.25,interactive:false,renderer:svgSel}).addTo(map)}
 function cull(){}
-/* 國土測繪中心圖層（圖磚疊加，不用自己畫線，所以不卡） */
 const cad=L.tileLayer('https://wmts.nlsc.gov.tw/wmts/LANDSECT/default/GoogleMapsCompatible/{z}/{y}/{x}',{maxNativeZoom:18,maxZoom:21,updateWhenZooming:false,zIndex:5,attribution:'© 內政部國土測繪中心'});
 $('#pbtn').onclick=()=>{const on=!map.hasLayer(cad);on?cad.addTo(map):map.removeLayer(cad);$('#pbtn').classList.toggle('on',on)};
 $('#sec').onchange=()=>{
@@ -279,7 +382,30 @@ function select(it,zoom){
   if(it.kind==='p')rows.push(['座標 (WGS84)',`${lat}, ${lng}`]);rows.push(['來源檔案',it.file]);
   const t=document.createElement('table');
   rows.forEach(([k,v])=>{const tr=t.insertRow();tr.insertCell().textContent=k;tr.insertCell().textContent=v});
-  ib.appendChild(t);$('#info').style.display='block';dist();adj();
+  ib.appendChild(t);
+
+  // 從地圖加入案件按鈕
+  const addBtn=document.createElement('button');
+  addBtn.id='addFromMap';
+  addBtn.className='on';
+  addBtn.textContent='＋ 加入今日案件';
+  addBtn.onclick=()=>{
+    const today=new Date().toISOString().slice(0,10);
+    openCaseForm({
+      date:today,
+      type:'鑑界',
+      sec:it.sec||'',
+      no:it.name||'',
+      name:'',
+      member:'',
+      loc: it.kind==='p' ? `N${tm2(it.center.lat,it.center.lng).n} E${tm2(it.center.lat,it.center.lng).e}` : (it.sec?it.sec+' ':'')+(it.name||''),
+      note:''
+    });
+    $('#cpanel').style.display='flex';
+  };
+  ib.appendChild(addBtn);
+
+  $('#info').style.display='block';dist();adj();
 }
 $('#x').onclick=()=>{$('#info').style.display='none';adj();clearSel();sel=null};
 map.on('click',()=>{res.style.display='none'});
@@ -308,9 +434,9 @@ $('#loc').onclick=()=>{
   $('#loc').classList.add('on');
   wid=navigator.geolocation.watchPosition(p=>{
     const c=p.coords,t=Date.now(),acc=Math.max(c.accuracy||50,1);
-    if(meM&&acc>150)return;                       // 太差的定位直接捨棄
+    if(meM&&acc>150)return;
     let av=gAvg();
-    if(av&&map.distance(av.ll,[c.latitude,c.longitude])>Math.max(acc,av.acc,8)*1.5)gbuf=[];   // 人在移動，重新累積
+    if(av&&map.distance(av.ll,[c.latitude,c.longitude])>Math.max(acc,av.acc,8)*1.5)gbuf=[];
     gbuf.push({lat:c.latitude,lng:c.longitude,acc,t});
     gbuf=gbuf.filter(x=>t-x.t<12000).slice(-10);
     if(meM&&t-lastT<1000)return;lastT=t;
@@ -393,9 +519,9 @@ $('#pack').onclick=()=>{
   if(!Object.keys(files).length){toast('還沒有資料可以打包');return}
   const d=new Date(),z=n=>String(n).padStart(2,'0');
   const name=`地籍資料包_${d.getFullYear()}${z(d.getMonth()+1)}${z(d.getDate())}.txt`;
-  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({bundle:1,files})],{type:'text/plain'}));
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({bundle:1,files,cases})],{type:'text/plain'}));
   a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),5000);
-  toast(`已打包 ${Object.keys(files).filter(k=>!k.startsWith('__')).length} 個檔案：${name}`);
+  toast(`已打包 ${Object.keys(files).filter(k=>!k.startsWith('__')).length} 個檔案 + 案件：${name}`);
 };
 $('#imp').onclick=()=>$('#panel').style.display='flex';
 $('#close').onclick=()=>$('#panel').style.display='none';
@@ -425,7 +551,7 @@ function summarize(p){
   try{const l=parseKml(p.text,p.name);PC[p.name]={t:p.text,l};
     const c=l.filter(x=>x.kind==='c'),pt=l.filter(x=>x.kind==='p').length,sec=[...new Set(c.map(x=>x.sec))];
     p.err=!c.length&&!pt;
-    p.hasSec=c.some(x=>x.sec!==stemOf(p.name));      // 地段名稱是否來自檔案內容
+    p.hasSec=c.some(x=>x.sec!==stemOf(p.name));
     p.sum=p.err?'沒有讀到任何地號或圖根點':`地籍 ${c.length} 筆`+(sec.length?`（地段：${sec.slice(0,4).join('、')}${sec.length>4?'…':''}）`:'')+`、圖根 ${pt} 點`;
   }catch(e){p.err=true;p.sum=e.message}
 }
@@ -465,7 +591,7 @@ $('#file').onchange=async e=>{
     else ents=[{name:f.name,text:await f.text()}];
     const flat=[];
     for(const en of ents){
-      if(en.text.trim()[0]==='{'){try{const o=JSON.parse(en.text),fs=o.files||o;for(const k in fs)flat.push({name:k,text:fs[k]})}catch(x){bad.push(en.name+'（資料包格式錯誤）')}}
+      if(en.text.trim()[0]==='{'){try{const o=JSON.parse(en.text),fs=o.files||o;for(const k in fs)flat.push({name:k,text:fs[k]});if(o.cases){cases=o.cases;saveCases()}}catch(x){bad.push(en.name+'（資料包格式錯誤）')}}
       else flat.push(en);
     }
     for(const en of flat){
@@ -487,13 +613,279 @@ $('#ok').onclick=async()=>{
   refresh();
   const after=[...new Set(items.filter(i=>i.kind==='c').map(i=>i.sec))].filter(k=>!before.has(k));
   toast(`已匯入 ${okList.length} 個檔案。`+(after.length?`新增地段：${after.join('、')}`:'沒有新增地段名稱（地號可能併入既有地段）。')+`目前共 ${[...new Set(items.filter(i=>i.kind==='c').map(i=>i.sec))].length} 個地段。`);
+  // 全部成功就自動關閉匯入視窗；若還有錯誤檔案則保持開啟方便處理
+  if(!pending.length) $('#panel').style.display='none';
 };
 $('#clr').onclick=async()=>{if(confirm('清除已匯入的所有資料？')){files={};await dbClear();refresh();toast('已清除')}};
+
+/* ========== 案件日曆模組 ========== */
+let cases=[]; // {id, date, type, sec, no, name, member, loc, note, created}
+let calY, calM, selDate;
+let editId=null;
+
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
+function saveCases(){files.__cases=JSON.stringify(cases);dbSet('__cases',files.__cases)}
+function loadCases(){try{cases=JSON.parse(files.__cases||'[]')}catch(e){cases=[]}}
+
+/** 依地段 + 地號在已匯入資料中找對應地號／圖根點 */
+function findItemBySecNo(sec, no){
+  const ns=norm(sec||''), nn=norm(no||'');
+  if(!nn && !ns) return null;
+  // 優先：地段 + 地號都相符
+  let hit=items.find(it=>it.kind==='c' && (!ns || it.nsec===ns || norm(it.sec)===ns) && it.key===nn);
+  if(hit) return hit;
+  // 其次：只比對地號（且地段相同或地段空白）
+  hit=items.find(it=>it.kind==='c' && it.key===nn && (!ns || it.nsec===ns || norm(it.sec)===ns || !it.nsec));
+  if(hit) return hit;
+  // 再其次：地號包含、或以地號搜尋
+  hit=items.find(it=>it.kind==='c' && it.key.includes(nn) && (!ns || it.nsec===ns || norm(it.sec)===ns));
+  if(hit) return hit;
+  // 圖根點：名稱相符
+  hit=items.find(it=>it.kind==='p' && (it.key===nn || it.key.includes(nn)));
+  if(hit) return hit;
+  // 最後用既有搜尋
+  const q=[sec,no].filter(Boolean).join(' ');
+  const r=search(q);
+  return r[0]||null;
+}
+
+/** 從案件定位到地圖 */
+function locateCase(c, closePanel=true){
+  if(!c) return;
+  const it=findItemBySecNo(c.sec, c.no);
+  if(!it){
+    toast('在已匯入的地籍資料中找不到「'+(c.sec||'')+' '+(c.no||'')+'」。請確認已匯入對應 KML，或手動在地圖搜尋。');
+    return;
+  }
+  // 若目前地段篩選不符，先切到全部或對應地段
+  const curSec=$('#sec').value;
+  if(it.kind==='c' && curSec && it.sec!==curSec){
+    $('#sec').value=it.sec;
+    applySec(false);
+  }
+  select(it, true);
+  if(closePanel){
+    $('#cpanel').style.display='none';
+    closeCaseForm();
+  }
+  toast('已定位：'+(it.sec?it.sec+' ':'')+(it.name||''));
+}
+
+function openCaseForm(prefill){
+  editId=prefill&&prefill.id||null;
+  $('#cformTitle').textContent=editId?'編輯案件':'新增案件';
+  $('#cf_date').value=prefill?.date||selDate||new Date().toISOString().slice(0,10);
+  $('#cf_type').value=prefill?.type||'鑑界';
+  $('#cf_sec').value=prefill?.sec||'';
+  $('#cf_no').value=prefill?.no||'';
+  $('#cf_name').value=prefill?.name||'';
+  $('#cf_member').value=prefill?.member||'';
+  $('#cf_loc').value=prefill?.loc||'';
+  $('#cf_note').value=prefill?.note||'';
+  $('#cform').style.display='block';
+  $('#cform').scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+function closeCaseForm(){$('#cform').style.display='none';editId=null}
+
+function renderCal(){
+  const title=$('#cym');
+  title.textContent=`${calY} 年 ${calM+1} 月`;
+  const grid=$('#cgrid');grid.innerHTML='';
+  ['日','一','二','三','四','五','六'].forEach(d=>{const e=document.createElement('div');e.className='hd';e.textContent=d;grid.appendChild(e)});
+  const first=new Date(calY,calM,1);
+  const start=first.getDay();
+  const days=new Date(calY,calM+1,0).getDate();
+  const today=new Date().toISOString().slice(0,10);
+  const has=new Set(cases.map(c=>c.date));
+  // 前月空白
+  const prevDays=new Date(calY,calM,0).getDate();
+  for(let i=0;i<start;i++){
+    const d=document.createElement('div');d.className='d other';d.textContent=prevDays-start+i+1;grid.appendChild(d);
+  }
+  for(let i=1;i<=days;i++){
+    const ds=`${calY}-${String(calM+1).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
+    const d=document.createElement('div');d.className='d';
+    if(ds===today)d.classList.add('today');
+    if(ds===selDate)d.classList.add('sel');
+    if(has.has(ds))d.classList.add('has');
+    d.textContent=i;
+    d.onclick=()=>{selDate=ds;renderCal();renderCaseList()};
+    grid.appendChild(d);
+  }
+}
+function renderCaseList(){
+  const list=$('#clist');list.innerHTML='';
+  $('#cdayTitle').textContent=selDate?`${selDate} 的案件`:'請選擇日期';
+  if(!selDate){list.innerHTML='<p class="sm">點選上方日期查看當日案件</p>';return}
+  const day=cases.filter(c=>c.date===selDate).sort((a,b)=>a.created-b.created);
+  if(!day.length){list.innerHTML='<p class="sm">這天還沒有案件，按「＋ 新增案件」開始記錄</p>';return}
+  day.forEach(c=>{
+    const card=document.createElement('div');card.className='case-card';
+    const canLocate=!!(c.sec||c.no);
+    card.innerHTML=`<div class="t">${c.type} <span class="badge">${c.sec||''} ${c.no||''}</span></div>
+      <div class="m">申請人：${c.name||'—'}　組員：${c.member||'—'}<br>位置：${c.loc||'—'}<br>${c.note?('備註：'+c.note):''}</div>
+      <div class="acts">
+        ${canLocate?'<button data-id="'+c.id+'" class="cloc on">定位</button>':''}
+        <button data-id="${c.id}" class="cedit">編輯</button>
+        <button data-id="${c.id}" class="cdel">刪除</button>
+      </div>`;
+    list.appendChild(card);
+  });
+  list.querySelectorAll('.cloc').forEach(b=>b.onclick=()=>{
+    const c=cases.find(x=>x.id===b.dataset.id);if(c)locateCase(c,true);
+  });
+  list.querySelectorAll('.cedit').forEach(b=>b.onclick=()=>{
+    const c=cases.find(x=>x.id===b.dataset.id);if(c)openCaseForm(c);
+  });
+  list.querySelectorAll('.cdel').forEach(b=>b.onclick=()=>{
+    if(!confirm('確定刪除這個案件？'))return;
+    cases=cases.filter(x=>x.id!==b.dataset.id);saveCases();renderCal();renderCaseList();toast('已刪除');
+  });
+}
+
+$('#casebtn').onclick=()=>{
+  const now=new Date();
+  if(calY===undefined){calY=now.getFullYear();calM=now.getMonth();selDate=now.toISOString().slice(0,10)}
+  renderCal();renderCaseList();
+  $('#cpanel').style.display='flex';
+};
+$('#cclose').onclick=()=>{$('#cpanel').style.display='none';closeCaseForm()};
+$('#cprev').onclick=()=>{calM--;if(calM<0){calM=11;calY--}renderCal()};
+$('#cnext').onclick=()=>{calM++;if(calM>11){calM=0;calY++}renderCal()};
+$('#cadd').onclick=()=>openCaseForm({date:selDate||new Date().toISOString().slice(0,10)});
+$('#cfcancel').onclick=closeCaseForm;
+$('#cfloc').onclick=()=>{
+  const sec=$('#cf_sec').value.trim(), no=$('#cf_no').value.trim();
+  if(!sec && !no){toast('請先填寫地段或地號');return}
+  const it=findItemBySecNo(sec, no);
+  if(!it){
+    toast('找不到對應地號，請確認已匯入 KML 或地段地號是否正確');
+    return;
+  }
+  // 自動補齊欄位
+  if(!sec && it.sec) $('#cf_sec').value=it.sec;
+  if(!no && it.name) $('#cf_no').value=it.name;
+  if(!$('#cf_loc').value){
+    if(it.kind==='p'){
+      const tt=tm2(it.center.lat,it.center.lng);
+      $('#cf_loc').value=`N${tt.n} E${tt.e}`;
+    }else{
+      $('#cf_loc').value=(it.sec?it.sec+' ':'')+(it.name||'');
+    }
+  }
+  // 定位但不關閉面板，方便繼續編輯
+  const curSec=$('#sec').value;
+  if(it.kind==='c' && curSec && it.sec!==curSec){
+    $('#sec').value=it.sec;
+    applySec(false);
+  }
+  select(it, true);
+  toast('已定位並可繼續編輯案件');
+};
+$('#cfsave').onclick=()=>{
+  const date=$('#cf_date').value;
+  if(!date){alert('請選擇日期');return}
+  const obj={
+    id:editId||uid(),
+    date,
+    type:$('#cf_type').value,
+    sec:$('#cf_sec').value.trim(),
+    no:$('#cf_no').value.trim(),
+    name:$('#cf_name').value.trim(),
+    member:$('#cf_member').value.trim(),
+    loc:$('#cf_loc').value.trim(),
+    note:$('#cf_note').value.trim(),
+    created:editId?(cases.find(c=>c.id===editId)?.created||Date.now()):Date.now()
+  };
+  if(editId){const i=cases.findIndex(c=>c.id===editId);if(i>=0)cases[i]=obj}
+  else cases.push(obj);
+  saveCases();
+  selDate=date;
+  const d=new Date(date);calY=d.getFullYear();calM=d.getMonth();
+  closeCaseForm();renderCal();renderCaseList();
+  toast(editId?'已更新案件':'已新增案件');
+};
+
+/* 匯出 / 匯入案件 */
+function download(name,blob){
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+}
+$('#cexpCsv').onclick=()=>{
+  if(!cases.length){toast('目前沒有案件');return}
+  const header=['日期','案件類型','地段','地號','申請人','組員','位置','備註'];
+  const rows=cases.slice().sort((a,b)=>a.date.localeCompare(b.date)).map(c=>[c.date,c.type,c.sec,c.no,c.name,c.member,c.loc,c.note].map(v=>`"${String(v||'').replace(/"/g,'""')}"`).join(','));
+  const csv='\uFEFF'+header.join(',')+'\n'+rows.join('\n');
+  download(`案件_${new Date().toISOString().slice(0,10)}.csv`,new Blob([csv],{type:'text/csv;charset=utf-8'}));
+  toast('已匯出 CSV，可直接用 Excel / Google 試算表開啟後分享');
+};
+$('#cexpIcs').onclick=()=>{
+  if(!cases.length){toast('目前沒有案件');return}
+  const esc=s=>String(s||'').replace(/\\/g,'\\\\').replace(/;/g,'\\;').replace(/,/g,'\\,').replace(/\n/g,'\\n');
+  let ics='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//地籍現場作業系統//ZH\r\nCALSCALE:GREGORIAN\r\n';
+  cases.forEach(c=>{
+    const dt=c.date.replace(/-/g,'');
+    const sum=`${c.type} ${c.sec||''} ${c.no||''}`.trim();
+    const desc=`申請人：${c.name||''}\\n組員：${c.member||''}\\n位置：${c.loc||''}\\n備註：${c.note||''}`;
+    ics+=`BEGIN:VEVENT\r\nUID:${c.id}@cadastral\r\nDTSTAMP:${new Date().toISOString().replace(/[-:]/g,'').slice(0,15)}Z\r\nDTSTART;VALUE=DATE:${dt}\r\nSUMMARY:${esc(sum)}\r\nDESCRIPTION:${esc(desc)}\r\nEND:VEVENT\r\n`;
+  });
+  ics+='END:VCALENDAR\r\n';
+  download(`案件日曆_${new Date().toISOString().slice(0,10)}.ics`,new Blob([ics],{type:'text/calendar;charset=utf-8'}));
+  toast('已匯出 ICS，可匯入 Google 日曆 / Outlook 後再分享日曆給組員');
+};
+$('#cexpAll').onclick=()=>{
+  const d=new Date(),z=n=>String(n).padStart(2,'0');
+  const name=`完整資料包_${d.getFullYear()}${z(d.getMonth()+1)}${z(d.getDate())}.json`;
+  download(name,new Blob([JSON.stringify({bundle:1,files,cases},null,2)],{type:'application/json'}));
+  toast('已匯出完整資料包（地圖資料 + 案件）');
+};
+$('#cimp').onclick=()=>$('#cfile').click();
+$('#cfile').onchange=async e=>{
+  const f=e.target.files[0];e.target.value='';
+  if(!f)return;
+  const text=await f.text();
+  try{
+    if(f.name.endsWith('.csv')||text.startsWith('日期')||text.startsWith('\uFEFF日期')){
+      const lines=text.replace(/^\uFEFF/,'').trim().split(/\r?\n/);
+      const body=lines.slice(1);
+      let n=0;
+      body.forEach(line=>{
+        const cols=[];let cur='',q=false;
+        for(let i=0;i<line.length;i++){
+          const ch=line[i];
+          if(ch==='"'){if(q&&line[i+1]==='"'){cur+='"';i++}else q=!q}
+          else if(ch===','&&!q){cols.push(cur);cur=''}
+          else cur+=ch;
+        }
+        cols.push(cur);
+        if(cols.length<4)return;
+        cases.push({id:uid(),date:cols[0],type:cols[1]||'其他',sec:cols[2]||'',no:cols[3]||'',name:cols[4]||'',member:cols[5]||'',loc:cols[6]||'',note:cols[7]||'',created:Date.now()});
+        n++;
+      });
+      saveCases();renderCal();renderCaseList();toast(`已從 CSV 匯入 ${n} 筆案件`);
+    }else{
+      const o=JSON.parse(text);
+      if(o.cases){cases=o.cases;saveCases()}
+      if(o.files||o.bundle){
+        const fs=o.files||o;
+        for(const k in fs)if(!k.startsWith('__')||k==='__renames'||k==='__deleted')putFile(k,fs[k]);
+        refresh();
+      }
+      renderCal();renderCaseList();
+      toast('已匯入資料'+(o.cases?`（${o.cases.length} 筆案件）`:''));
+    }
+  }catch(err){alert('無法讀取檔案：'+err.message)}
+};
+$('#cclr').onclick=()=>{if(confirm('確定清除所有案件記錄？')){cases=[];saveCases();renderCal();renderCaseList();toast('已清除所有案件')}};
+
+/* 初始化 */
 (async()=>{
   let emb={};const pe=document.getElementById('preload');
   if(pe){try{emb=JSON.parse(pe.textContent)}catch(e){}}
   files={...emb,...await dbAll()};
-  if(Object.keys(files).length)refresh();else $('#panel').style.display='flex';
+  loadCases();
+  if(Object.keys(files).filter(k=>!k.startsWith('__')).length)refresh();
+  else $('#panel').style.display='flex';
 })();
 </script>
 </body>
