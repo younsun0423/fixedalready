@@ -176,10 +176,14 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px}
     </div>
     <div class="form-row">
       <label>地段<input type="text" id="cf_sec" placeholder="例如：新生段"></label>
-      <label>地號<input type="text" id="cf_no" placeholder="例如：123-4"></label>
+      <label>地號（可多筆）<input type="text" id="cf_no" placeholder="例如：123-4, 125, 126"></label>
     </div>
     <div class="form-row" style="margin-top:-4px">
+      <p class="sm" style="margin:0 0 4px;width:100%">多筆地號請用逗號、頓號或空白分隔；定位／導航以第一筆找得到的地號為準。</p>
       <button type="button" id="cfloc" class="on" style="width:100%">◎ 依地段地號定位到地圖</button>
+    </div>
+    <div class="form-row">
+      <label>點位數量<input type="number" id="cf_pts" min="0" step="1" inputmode="numeric" placeholder="例如：4"></label>
     </div>
     <div class="form-row">
       <label style="flex:2">申請人姓名<input type="text" id="cf_name" placeholder="申請人"></label>
@@ -718,7 +722,21 @@ function autoFillLocFromCadastral(force){
 }
 
 /** 依地段 + 地號在已匯入資料中找對應地號／圖根點 */
-function findItemBySecNo(sec, no){
+function parseNos(str){return [...new Set(String(str||'').split(/[,，、;；\s]+/).map(x=>x.trim()).filter(Boolean))]}
+/** 多筆地號：逐筆比對，回傳 [{no,it}]（找不到的略過） */
+function findItemsBySecNo(sec, no){
+  const out=[];
+  parseNos(no).forEach(n=>{const it=findOneBySecNo(sec,n);if(it&&!out.some(o=>o.it===it))out.push({no:n,it})});
+  return out;
+}
+function findItemBySecNo(sec, no){const h=findItemsBySecNo(sec,no);return h.length?h[0].it:null}
+function fitHits(hits){
+  if(!hits||hits.length<2)return;
+  let b=null;
+  hits.forEach(h=>{const x=h.it.kind==='c'?h.it.bounds:L.latLngBounds(h.it.center,h.it.center);b=b?b.extend(x):L.latLngBounds(x.getSouthWest(),x.getNorthEast())});
+  if(b)map.fitBounds(b,{padding:[60,60],maxZoom:20,animate:false});
+}
+function findOneBySecNo(sec, no){
   const ns=norm(sec||''), nn=norm(no||'');
   if(!nn) return null; // 地號未輸入時不比對，避免空字串 includes('') 誤中第一筆（圖根點）
   // 優先：地段 + 地號都相符
@@ -742,11 +760,12 @@ function findItemBySecNo(sec, no){
 /** 從案件定位到地圖 */
 function locateCase(c, closePanel=true){
   if(!c) return;
-  const it=findItemBySecNo(c.sec, c.no);
-  if(!it){
+  const hits=findItemsBySecNo(c.sec, c.no);
+  if(!hits.length){
     toast('在已匯入的地籍資料中找不到「'+(c.sec||'')+' '+(c.no||'')+'」。請確認已匯入對應 KML，或手動在地圖搜尋。');
     return;
   }
+  const it=hits[0].it;
   // 若目前地段篩選不符，先切到全部或對應地段
   const curSec=$('#sec').value;
   if(it.kind==='c' && curSec && it.sec!==curSec){
@@ -754,11 +773,13 @@ function locateCase(c, closePanel=true){
     applySec(false);
   }
   select(it, true);
+  fitHits(hits);
   if(closePanel){
     $('#cpanel').style.display='none';
     closeCaseForm();
   }
-  toast('已定位：'+(it.sec?it.sec+' ':'')+(it.name||''));
+  const total=parseNos(c.no).length;
+  toast('已定位：'+(it.sec?it.sec+' ':'')+(it.name||'')+(total>1?`（共 ${total} 筆地號，找到 ${hits.length} 筆）`:''));
 }
 
 function roundTime5(t){
@@ -797,6 +818,7 @@ function openCaseForm(prefill){
   $('#cf_type').value=prefill?.type||'鑑界';
   $('#cf_sec').value=prefill?.sec||'';
   $('#cf_no').value=prefill?.no||'';
+  $('#cf_pts').value=(prefill?.pts!=null&&prefill.pts!=='')?prefill.pts:'';
   $('#cf_name').value=prefill?.name||'';
   const mem=prefill?.member || (!editId && settings.defaultMember) || '';
   $('#cf_member').value=mem;
@@ -874,9 +896,10 @@ function renderCaseList(){
   day.forEach(c=>{
     const card=document.createElement('div');card.className='case-card';
     const canLocate=!!(c.sec||c.no);
+    const ptsStr=(c.pts!=null&&c.pts!=='')?('點位數量：'+c.pts+'<br>'):'';
     const timeStr=c.time?`<span style="color:var(--acc);font-weight:700;margin-right:6px">${c.time}</span>`:'';
     card.innerHTML=`<div class="t">${timeStr}${c.type} <span class="badge">${c.sec||''} ${c.no||''}</span></div>
-      <div class="m">申請人：${c.name||'—'}　承辦測量員：${c.member||'—'}<br>${c.note?('備註：'+c.note):''}</div>
+      <div class="m">申請人：${c.name||'—'}　承辦測量員：${c.member||'—'}<br>${ptsStr}${c.note?('備註：'+c.note):''}</div>
       <div class="acts">
         ${canLocate?'<button data-id="'+c.id+'" class="cloc on">定位</button>':''}
         <button data-id="${c.id}" class="cnav">導航</button>
@@ -892,7 +915,7 @@ function renderCaseList(){
     const c=cases.find(x=>x.id===b.dataset.id);if(!c)return;
     const co=getCaseCoords(c);
     if(co) openGMapsNav(co.lat,co.lng,(c.sec||'')+' '+(c.no||''));
-    else openGMapsNav(null,null,c.loc||((c.sec||'')+' '+(c.no||'')));
+    else openGMapsNav(null,null,c.loc||((c.sec||'')+' '+(parseNos(c.no)[0]||'')));
   });
   list.querySelectorAll('.cedit').forEach(b=>b.onclick=()=>{
     const c=cases.find(x=>x.id===b.dataset.id);if(c)openCaseForm(c);
@@ -930,8 +953,11 @@ $('#cfloc').onclick=()=>{
     $('#sec').value=it.sec;
     applySec(false);
   }
+  const hits=findItemsBySecNo(sec, no);
   select(it, true);
-  toast('已從地籍資料帶入座標並定位');
+  fitHits(hits);
+  const total=parseNos(no).length;
+  toast('已從地籍資料帶入座標並定位'+(total>1?`（${total} 筆地號中找到 ${hits.length} 筆）`:''));
 };
 // 地段／地號輸入完畢後自動帶入真實座標（僅限已匯入資料）
 ['cf_sec','cf_no'].forEach(id=>{
@@ -966,7 +992,8 @@ $('#cfsave').onclick=()=>{
     time,
     type:$('#cf_type').value,
     sec:$('#cf_sec').value.trim(),
-    no:$('#cf_no').value.trim(),
+    no:parseNos($('#cf_no').value).join(', '),
+    pts:(()=>{const v=$('#cf_pts').value.trim();if(v==='')return null;const n=parseInt(v,10);return isNaN(n)?null:Math.max(0,n)})(),
     name:$('#cf_name').value.trim(),
     member:$('#cf_member').value.trim(),
     loc:$('#cf_loc').value.trim(),
@@ -1021,8 +1048,8 @@ function download(name,blob){
 }
 $('#cexpCsv').onclick=()=>{
   if(!cases.length){toast('目前沒有案件');return}
-  const header=['日期','時間','案件類型','地段','地號','申請人','承辦測量員','位置','備註','緯度','經度'];
-  const rows=cases.slice().sort((a,b)=>a.date.localeCompare(b.date)||(a.time||'').localeCompare(b.time||'')).map(c=>[c.date,c.time||'',c.type,c.sec,c.no,c.name,c.member,c.loc,c.note,c.lat??'',c.lng??''].map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(','));
+  const header=['日期','時間','案件類型','地段','地號','申請人','承辦測量員','位置','備註','緯度','經度','點位數量'];
+  const rows=cases.slice().sort((a,b)=>a.date.localeCompare(b.date)||(a.time||'').localeCompare(b.time||'')).map(c=>[c.date,c.time||'',c.type,c.sec,c.no,c.name,c.member,c.loc,c.note,c.lat??'',c.lng??'',c.pts??''].map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(','));
   const csv='\uFEFF'+header.join(',')+'\n'+rows.join('\n');
   download(`案件_${new Date().toISOString().slice(0,10)}.csv`,new Blob([csv],{type:'text/csv;charset=utf-8'}));
   toast('已匯出 CSV，可直接用 Excel / Google 試算表開啟後分享');
@@ -1035,7 +1062,7 @@ $('#cexpIcs').onclick=()=>{
     const dt=c.date.replace(/-/g,'');
     const tm=(c.time||'09:00').replace(':','')+'00';
     const sum=`${c.time?c.time+' ':''}${c.type} ${c.sec||''} ${c.no||''}`.trim();
-    const desc=`申請人：${c.name||''}\\n承辦測量員：${c.member||''}\\n位置：${c.loc||''}\\n備註：${c.note||''}`;
+    const desc=`地號：${c.no||''}\\n點位數量：${c.pts??''}\\n申請人：${c.name||''}\\n承辦測量員：${c.member||''}\\n位置：${c.loc||''}\\n備註：${c.note||''}`;
     // 有時間用 DATETIME（本地），沒有則用全天
     let dtstart;
     if(c.time){
@@ -1080,7 +1107,7 @@ $('#cfile').onchange=async e=>{
         // 新格式：日期,時間,類型,地段,地號,申請人,承辦測量員,位置,備註,緯度,經度
         // 舊格式：日期,類型,地段,地號,申請人,組員,位置,備註
         if(hasTime){
-          cases.push({id:uid(),date:cols[0],time:roundTime5(cols[1]||''),type:cols[2]||'其他',sec:cols[3]||'',no:cols[4]||'',name:cols[5]||'',member:cols[6]||'',loc:cols[7]||'',note:cols[8]||'',lat:cols[9]?+cols[9]:null,lng:cols[10]?+cols[10]:null,created:Date.now()});
+          cases.push({id:uid(),date:cols[0],time:roundTime5(cols[1]||''),type:cols[2]||'其他',sec:cols[3]||'',no:cols[4]||'',name:cols[5]||'',member:cols[6]||'',loc:cols[7]||'',note:cols[8]||'',lat:cols[9]?+cols[9]:null,lng:cols[10]?+cols[10]:null,pts:(cols[11]!=null&&cols[11]!==''&&!isNaN(+cols[11]))?+cols[11]:null,created:Date.now()});
         }else{
           cases.push({id:uid(),date:cols[0],time:'',type:cols[1]||'其他',sec:cols[2]||'',no:cols[3]||'',name:cols[4]||'',member:cols[5]||'',loc:cols[6]||'',note:cols[7]||'',lat:null,lng:null,created:Date.now()});
         }
@@ -1111,7 +1138,7 @@ $('#cfile').onchange=async e=>{
         const desc=get('DESCRIPTION');
         // 智慧解析標題：類型縮寫 + 地段地號
         // 例：(鑑)富民449地號、鑑界 新生段 123-4、(測)中山段45-1
-        let type='其他', sec='', no='', name='', member='', loc='', note='';
+        let type='其他', sec='', no='', name='', member='', loc='', note='', pts=null;
         let sm=summary.replace(/^\d{1,2}:\d{2}\s*/,'').trim();
 
         // 1) 類型：括號縮寫或完整名稱
@@ -1149,14 +1176,16 @@ $('#cfile').onchange=async e=>{
         // if(sec && !/段$/.test(sec)) sec=sec+'段';
 
         desc.split(/\n/).forEach(line=>{
-          if(/^申請人[：:]/.test(line)) name=line.replace(/^申請人[：:]\s*/,'');
+          if(/^地號[：:]/.test(line)){const v=line.replace(/^地號[：:]\s*/,'').trim();if(v)no=parseNos(v).join(', ')}
+          else if(/^點位數量[：:]/.test(line)){const v=line.replace(/^點位數量[：:]\s*/,'').trim();if(v!==''&&!isNaN(+v))pts=+v}
+          else if(/^申請人[：:]/.test(line)) name=line.replace(/^申請人[：:]\s*/,'');
           else if(/^(承辦測量員|組員)[：:]/.test(line)) member=line.replace(/^(承辦測量員|組員)[：:]\s*/,'');
           else if(/^位置[：:]/.test(line)) loc=line.replace(/^位置[：:]\s*/,'');
           else if(/^備註[：:]/.test(line)) note=line.replace(/^備註[：:]\s*/,'');
         });
         // DESCRIPTION 若整段是自由文字且沒結構化欄位，整段當備註
         if(!name && !member && !loc && !note && desc.trim()) note=desc.trim();
-        cases.push({id:uid(),date,time,type,sec,no,name,member,loc,note,lat:null,lng:null,created:Date.now()});
+        cases.push({id:uid(),date,time,type,sec,no,name,member,loc,note,pts,lat:null,lng:null,created:Date.now()});
         n++;
       });
       saveCases();renderCal();renderCaseList();
