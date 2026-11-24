@@ -185,20 +185,19 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px}
       <label style="flex:2">申請人姓名<input type="text" id="cf_name" placeholder="申請人"></label>
     </div>
     <div class="form-row">
-      <label style="flex:2">位置 / 座標（僅來自已匯入地籍，不臆造）<input type="text" id="cf_loc" placeholder="填好地段地號後自動帶入，或按上方定位" readonly></label>
+      <label style="flex:2">導航（座標僅來自已匯入地籍，不臆造）<input type="hidden" id="cf_loc"><button type="button" id="cfnav" style="width:100%;margin-top:4px">🧭 Google 導航</button></label>
     </div>
     <div class="form-row">
       <label style="flex:2">備註<textarea id="cf_note" rows="2" placeholder="現場注意事項、聯絡電話等"></textarea></label>
     </div>
     <div class="form-actions">
       <button id="cfsave" class="ok">儲存</button>
-      <button type="button" id="cfnav">Google 導航</button>
       <button id="cfcancel">取消</button>
     </div>
   </div>
 
-  <div style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">
-    <h3>預設設定</h3>
+  <details style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">
+    <summary style="cursor:pointer;font-size:15px;font-weight:700;padding:4px 0">預設設定</summary>
     <p>新增案件時自動帶入預設時段與測量員。測量員名單會出現在下拉選單。</p>
     <div class="form-row">
       <label>預設時間
@@ -216,10 +215,10 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px}
     <div class="form-actions">
       <button id="set_save" class="ok">儲存設定</button>
     </div>
-  </div>
+  </details>
 
-  <div style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">
-    <h3>分享給組員</h3>
+  <details style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">
+    <summary style="cursor:pointer;font-size:15px;font-weight:700;padding:4px 0">分享給組員</summary>
     <p>把案件匯出成檔案傳給另外兩位，他們用「匯入」即可同步。支援 CSV、ICS 日曆檔、完整資料包（JSON）。</p>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
       <button id="cexpCsv">匯出 CSV</button>
@@ -229,7 +228,7 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px}
       <button id="cclr" style="color:#ff9a8f">清除所有案件</button>
     </div>
     <input id="cfile" type="file" accept=".json,.csv,.txt,.ics" hidden>
-  </div>
+  </details>
 </div></div>
 
 <div class="toast" id="toast"></div>
@@ -877,7 +876,7 @@ function renderCaseList(){
     const canLocate=!!(c.sec||c.no);
     const timeStr=c.time?`<span style="color:var(--acc);font-weight:700;margin-right:6px">${c.time}</span>`:'';
     card.innerHTML=`<div class="t">${timeStr}${c.type} <span class="badge">${c.sec||''} ${c.no||''}</span></div>
-      <div class="m">申請人：${c.name||'—'}　承辦測量員：${c.member||'—'}<br>位置：${c.loc||'—'}<br>${c.note?('備註：'+c.note):''}</div>
+      <div class="m">申請人：${c.name||'—'}　承辦測量員：${c.member||'—'}<br>${c.note?('備註：'+c.note):''}</div>
       <div class="acts">
         ${canLocate?'<button data-id="'+c.id+'" class="cloc on">定位</button>':''}
         <button data-id="${c.id}" class="cnav">導航</button>
