@@ -565,8 +565,9 @@ $('#qbtn').onclick=()=>{
 };
 $('#ren').onclick=()=>{
   const cur=$('#sec').value;if(!cur){alert('請先在下拉選單選一個要改名的地段');return}
-  const nn=prompt(`編輯地段名稱，將「${cur}」改為：\n（輸入已存在的地段名稱會合併；留空則還原成原名）`,cur);
+  const nn=prompt(`編輯地段名稱，將「${cur}」改為：\n（不可與其他地段同名；留空則還原成原名）`,cur);
   if(nn===null)return;const v=nn.trim();
+  if(v&&v!==cur&&items.some(i=>i.kind==='c'&&i.sec===v)){alert('地段名稱「'+v+'」已存在，不能重複（也不會合併）。請改用其他名稱。');return}
   items.forEach(it=>{if(it.kind==='c'&&it.sec===cur){if(!v||v===it.sec0)delete ren[it.sec0];else ren[it.sec0]=v}});
   files.__renames=JSON.stringify(ren);dbSet('__renames',files.__renames);
   refresh();
@@ -611,14 +612,28 @@ function summarize(p){
     const c=l.filter(x=>x.kind==='c'),pt=l.filter(x=>x.kind==='p').length,sec=[...new Set(c.map(x=>x.sec))];
     p.err=!c.length&&!pt;
     p.hasSec=c.some(x=>x.sec!==stemOf(p.name));
+    p.secs=sec;
     p.sum=p.err?'沒有讀到任何地號或圖根點':`地籍 ${c.length} 筆`+(sec.length?`（地段：${sec.slice(0,4).join('、')}${sec.length>4?'…':''}）`:'')+`、圖根 ${pt} 點`;
-  }catch(e){p.err=true;p.sum=e.message}
+  }catch(e){p.err=true;p.sum=e.message;p.secs=[]}
+  p.baseErr=p.err;p.sum0=p.sum;
+}
+/** 阻擋重複地段：與已匯入、或與待匯入中較前面的檔案同名的地段，整個檔案不得匯入 */
+function recheck(){
+  const used=new Set();
+  items.forEach(i=>{if(i.kind==='c'){used.add(i.sec);if(i.sec0)used.add(i.sec0)}});
+  pending.forEach(p=>{
+    if(p.baseErr){p.err=true;p.dup=false;return}
+    const dup=(p.secs||[]).filter(k=>used.has(k));
+    if(dup.length){p.err=true;p.dup=dup;p.sum=`地段「${dup.slice(0,4).join('、')}${dup.length>4?'…':''}」已匯入過或名稱重複，已阻擋。請改地段名稱，或先刪除舊的地段／檔案。`}
+    else{p.err=false;p.dup=false;p.sum=p.sum0;(p.secs||[]).forEach(k=>used.add(k))}
+  });
 }
 function renderPend(){
+  recheck();
   const box=$('#plist');box.innerHTML='';
   pending.forEach(p=>{
     const w=document.createElement('div'),r=document.createElement('div');r.className='fr';
-    const hasC=!p.err&&/地籍 [1-9]/.test(p.sum);
+    const hasC=!p.baseErr&&/地籍 [1-9]/.test(p.sum0||'');
     if(hasC&&!p.hasSec){
       const lb=document.createElement('span');lb.textContent='地段名稱';lb.style.whiteSpace='nowrap';
       const inp=document.createElement('input');inp.value=stemOf(p.name);inp.placeholder='例如：新生段';
@@ -650,7 +665,7 @@ $('#file').onchange=async e=>{
     else ents=[{name:f.name,text:await f.text()}];
     const flat=[];
     for(const en of ents){
-      if(en.text.trim()[0]==='{'){try{const o=JSON.parse(en.text),fs=o.files||o;for(const k in fs)flat.push({name:k,text:fs[k]});if(o.cases){cases=o.cases;saveCases()}}catch(x){bad.push(en.name+'（資料包格式錯誤）')}}
+      if(en.text.trim()[0]==='{'){try{const o=JSON.parse(en.text),fs=o.files||o;for(const k in fs)flat.push({name:k,text:fs[k]});if(o.cases){mergeCases(o.cases);renderCal();renderCaseList()}}catch(x){bad.push(en.name+'（資料包格式錯誤）')}}
       else flat.push(en);
     }
     for(const en of flat){
@@ -660,10 +675,13 @@ $('#file').onchange=async e=>{
     }
   }
   renderPend();
+  const blocked=pending.filter(p=>p.dup);
+  if(blocked.length)alert('以下地段已匯入過或名稱重複，已阻擋匯入：\n'+blocked.map(p=>'・'+p.name+'：'+p.dup.join('、')).join('\n')+'\n\n若是新版本，請先刪除舊的地段／檔案；若只是同名，請改地段名稱。');
   toast((pending.length?`已選好 ${pending.length} 個檔案，請確認後按「確認匯入」。`:'沒有可匯入的新檔案。')+(skipped?` 略過 ${skipped} 個已匯入過的相同檔案。`:'')+(bad.length?` 無法讀取：${bad.join('、')}`:''));
 };
 $('#pcancel').onclick=()=>{pending.forEach(p=>{if(!(p.name in files))delete PC[p.name]});pending=[];renderPend();toast('已取消')};
 $('#ok').onclick=async()=>{
+  recheck();
   const okList=pending.filter(p=>!p.err);if(!okList.length)return;
   const before=new Set(items.filter(i=>i.kind==='c').map(i=>i.sec));
   toast('匯入中，請稍候…');await new Promise(r=>setTimeout(r,40));
