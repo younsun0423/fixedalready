@@ -29,7 +29,12 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px}
 .side{position:absolute;z-index:999;right:8px;top:calc(env(safe-area-inset-top,0px) + 64px);display:flex;flex-direction:column;gap:6px}
 .side button{width:44px;height:44px;padding:0;font-size:18px}
 #info{position:absolute;z-index:1000;left:8px;right:8px;bottom:calc(env(safe-area-inset-bottom,0px) + 8px);max-width:560px;background:var(--panel);border:2px solid var(--line);border-radius:10px;padding:10px 12px;display:none;max-height:40vh;overflow:auto}
-#ib{padding-right:40px}
+#ib{padding-right:100px}
+#ixt{position:absolute;right:46px;top:6px;padding:2px 9px;font-size:13px}
+#info.mini .big,#info.mini table{display:none}
+#meH{font-size:13px;color:#8cc4ff;cursor:pointer;padding:3px 0;white-space:nowrap;user-select:none}
+#meB{display:none}
+#me.open #meB{display:block}
 #info h3{margin:0 0 4px;font-size:18px}
 #info .d{color:var(--acc);font-size:15px;margin-bottom:6px}
 #pbtn{font-size:14px!important}
@@ -108,13 +113,14 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px}
   <button id="loc" title="我的位置" aria-label="我的位置">◎</button>
   <button id="base" title="切換底圖" aria-label="切換底圖">🛰</button>
   <button id="pbtn" title="疊加國土測繪中心 段籍圖層" aria-label="段籍">段籍</button>
+  <button id="clrsel" style="display:none;font-size:11px;line-height:1.15;color:#ff9a8f;border-color:#ff5a4d">清除</button>
   <button id="casebtn" title="案件日曆" aria-label="案件日曆">📅</button>
   <button id="zin" aria-label="放大">＋</button>
   <button id="zout" aria-label="縮小">－</button>
 </div>
 
-<div id="me"><div class="mr"><small>我的位置 N</small><b id="meN"></b></div><div class="mr"><small>E</small><b id="meE"></b></div><small id="meA"></small></div>
-<div id="info"><button id="x" aria-label="關閉">✕</button><div id="ib"></div></div>
+<div id="me"><div id="meH">📍 我的座標 <span id="meT">▾ 展開</span></div><div id="meB"><div class="mr"><small>我的位置 N</small><b id="meN"></b></div><div class="mr"><small>E</small><b id="meE"></b></div><small id="meA"></small></div></div>
+<div id="info" class="mini"><button id="ixt" aria-label="展開或收摺">展開</button><button id="x" aria-label="關閉">✕</button><div id="ib"></div></div>
 
 <!-- 匯入面板 -->
 <div id="panel"><div class="box">
@@ -223,12 +229,13 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px}
 
   <details style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">
     <summary style="cursor:pointer;font-size:15px;font-weight:700;padding:4px 0">分享給組員</summary>
-    <p>把案件匯出成檔案傳給另外兩位，他們用「匯入」即可同步。支援 CSV、ICS 日曆檔、完整資料包（JSON）。</p>
+    <p>按「匯出案件 JSON」把全部案件存成 .json 檔傳給組員，他們按「匯入」就會把你的案件加進自己的日曆（只新增或更新，不會蓋掉他們原有的案件）。也支援 CSV、ICS、完整資料包。</p>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button id="cexpJson" class="on">匯出案件 JSON</button>
       <button id="cexpCsv">匯出 CSV</button>
       <button id="cexpIcs">匯出 ICS 日曆</button>
       <button id="cexpAll">匯出完整資料包</button>
-      <button id="cimp">匯入 CSV / ICS / 資料包</button>
+      <button id="cimp">匯入 JSON / CSV / ICS</button>
       <button id="cclr" style="color:#ff9a8f">清除所有案件</button>
     </div>
     <input id="cfile" type="file" accept=".json,.csv,.txt,.ics" hidden>
@@ -325,15 +332,15 @@ function applySec(fit){
   if(fit&&curC.length){let b=null;curC.forEach(it=>{b=b?b.extend(it.bounds):L.latLngBounds(it.bounds.getSouthWest(),it.bounds.getNorthEast())});map.fitBounds(b,{padding:[30,30]})}
   cull();labels();
 }
-let selMk=null;
-function clearSel(){if(selMk){map.removeLayer(selMk);selMk=null}}
+const selMks=new Map(); // 已選地籍（可累積多筆，直到按「清除」才移除）
+function updClr(){const n=selMks.size,b=$('#clrsel');if(!b)return;b.style.display=n?'':'none';b.innerHTML='清除<br>×'+n;b.title='清除所選地籍（'+n+' 筆）'}
+function clearSel(){selMks.forEach(m=>map.removeLayer(m));selMks.clear();updClr()}
 const svgSel=L.svg();
-function showSel(it){clearSel();selMk=L.polygon(it.polys,{color:'#ff5a4d',weight:4,fillColor:'#ffd23f',fillOpacity:.25,interactive:false,renderer:svgSel}).addTo(map)}
+function showSel(it){if(selMks.has(it))return;selMks.set(it,L.polygon(it.polys,{color:'#ff5a4d',weight:4,fillColor:'#ffd23f',fillOpacity:.25,interactive:false,renderer:svgSel}).addTo(map));updClr()}
 function cull(){}
 const cad=L.tileLayer('https://wmts.nlsc.gov.tw/wmts/LANDSECT/default/GoogleMapsCompatible/{z}/{y}/{x}',{maxNativeZoom:18,maxZoom:21,updateWhenZooming:false,zIndex:5,attribution:'© 內政部國土測繪中心'});
 $('#pbtn').onclick=()=>{const on=!map.hasLayer(cad);on?cad.addTo(map):map.removeLayer(cad);$('#pbtn').classList.toggle('on',on)};
 $('#sec').onchange=()=>{
-  clearSel();
   sel=null;$('#info').style.display='none';adj();
   applySec(true);
   if($('#q').value.trim())$('#q').dispatchEvent(new Event('input'));
@@ -388,7 +395,6 @@ function tm2(lat,lng){
   return{n:t3(y.toFixed(6)),e:t3(x.toFixed(6))};
 }
 function select(it,zoom){
-  clearSel();
   sel=it;
   if(it.kind==='c')showSel(it);
   if(zoom){it.kind==='c'?map.fitBounds(it.bounds,{padding:[60,60],maxZoom:20,animate:false}):map.setView(it.center,Math.max(map.getZoom(),19),{animate:false})}
@@ -453,9 +459,14 @@ function select(it,zoom){
   btnRow.appendChild(navBtn);
   ib.appendChild(btnRow);
 
-  $('#info').style.display='block';dist();adj();
+  $('#info').style.display='block';setInfoMini(infoMini);dist();adj();
 }
-$('#x').onclick=()=>{$('#info').style.display='none';adj();clearSel();sel=null};
+let infoMini=true;
+function setInfoMini(m){infoMini=m;$('#info').classList.toggle('mini',m);$('#ixt').textContent=m?'展開':'收摺'}
+$('#ixt').onclick=()=>{setInfoMini(!infoMini);adj()};
+$('#meH').onclick=()=>{const o=$('#me').classList.toggle('open');$('#meT').textContent=o?'▴ 收摺':'▾ 展開'};
+$('#x').onclick=()=>{$('#info').style.display='none';adj();sel=null};
+$('#clrsel').onclick=()=>{clearSel();sel=null;$('#info').style.display='none';adj();toast('已清除所選地籍')};
 map.on('click',()=>{res.style.display='none'});
 function adj(){const h=$('#info').style.display==='block'?$('#info').offsetHeight+16:0;document.querySelectorAll('.leaflet-bottom').forEach(e=>e.style.bottom=h+'px')}
 function place(){const y=($('#top').getBoundingClientRect().bottom+8)+'px';$('.side').style.top=y;$('#me').style.top=y}
@@ -731,7 +742,9 @@ function findItemsBySecNo(sec, no){
 }
 function findItemBySecNo(sec, no){const h=findItemsBySecNo(sec,no);return h.length?h[0].it:null}
 function fitHits(hits){
-  if(!hits||hits.length<2)return;
+  if(!hits||!hits.length)return;
+  hits.forEach(h=>{if(h.it.kind==='c')showSel(h.it)});
+  if(hits.length<2)return;
   let b=null;
   hits.forEach(h=>{const x=h.it.kind==='c'?h.it.bounds:L.latLngBounds(h.it.center,h.it.center);b=b?b.extend(x):L.latLngBounds(x.getSouthWest(),x.getNorthEast())});
   if(b)map.fitBounds(b,{padding:[60,60],maxZoom:20,animate:false});
@@ -1076,6 +1089,42 @@ $('#cexpIcs').onclick=()=>{
   download(`案件日曆_${new Date().toISOString().slice(0,10)}.ics`,new Blob([ics],{type:'text/calendar;charset=utf-8'}));
   toast('已匯出 ICS，可匯入 Google 日曆 / Outlook 後再分享日曆給組員');
 };
+/** 案件 JSON：只含案件，檔案小、方便傳送 */
+$('#cexpJson').onclick=async()=>{
+  if(!cases.length){toast('目前沒有案件');return}
+  const d=new Date(),z=n=>String(n).padStart(2,'0');
+  const name=`案件_${d.getFullYear()}${z(d.getMonth()+1)}${z(d.getDate())}.json`;
+  const blob=new Blob([JSON.stringify({caseExport:1,exported:d.toISOString(),cases},null,2)],{type:'application/json'});
+  // 手機優先開啟系統分享選單（可直接選 LINE 或「存到檔案」），不支援時改為下載
+  try{
+    const file=new File([blob],name,{type:'application/json'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){
+      await navigator.share({files:[file],title:'案件資料'});
+      toast(`已開啟分享（${cases.length} 筆案件）`);return;
+    }
+  }catch(e){if(e&&e.name==='AbortError')return}
+  download(name,blob);
+  toast(`已匯出 ${cases.length} 筆案件（${name}）`);
+};
+/** 合併匯入：同 id 者更新，內容完全相同者略過，其餘新增；不會刪掉原有案件 */
+function mergeCases(list){
+  let add=0,upd=0,skip=0;
+  const key=c=>[c.date,c.time||'',c.type||'',c.sec||'',c.no||'',c.name||''].join('|');
+  (Array.isArray(list)?list:[]).forEach(c=>{
+    if(!c||!c.date)return;
+    const o={...c,id:c.id||uid(),pts:(c.pts!=null&&c.pts!==''&&!isNaN(+c.pts))?+c.pts:null};
+    const i=cases.findIndex(x=>x.id===o.id);
+    if(i>=0){
+      if(JSON.stringify(cases[i])===JSON.stringify(o))skip++;
+      else{cases[i]={...cases[i],...o};upd++}
+      return;
+    }
+    if(cases.some(x=>key(x)===key(o))){skip++;return}
+    cases.push(o);add++;
+  });
+  saveCases();
+  return {add,upd,skip};
+}
 $('#cexpAll').onclick=()=>{
   const d=new Date(),z=n=>String(n).padStart(2,'0');
   const name=`完整資料包_${d.getFullYear()}${z(d.getMonth()+1)}${z(d.getDate())}.json`;
@@ -1192,14 +1241,21 @@ $('#cfile').onchange=async e=>{
       toast(n?`已從 ICS 匯入 ${n} 筆案件`:'ICS 中沒有找到可用的事件');
     }else{
       const o=JSON.parse(text);
-      if(o.cases){cases=o.cases;saveCases()}
+      let msg='';
+      const list=Array.isArray(o)?o:o.cases;
+      if(list){
+        const r=mergeCases(list);
+        msg=`：新增 ${r.add} 筆、更新 ${r.upd} 筆、略過重複 ${r.skip} 筆`;
+        const dts=list.map(c=>c&&c.date).filter(Boolean).sort();
+        if(r.add&&dts.length){selDate=dts[0];const d0=new Date(selDate);calY=d0.getFullYear();calM=d0.getMonth()}
+      }
       if(o.files||o.bundle){
         const fs=o.files||o;
         for(const k in fs)if(!k.startsWith('__')||k==='__renames'||k==='__deleted')putFile(k,fs[k]);
         refresh();
       }
       renderCal();renderCaseList();
-      toast('已匯入資料'+(o.cases?`（${o.cases.length} 筆案件）`:''));
+      toast('已匯入資料'+msg);
     }
   }catch(err){alert('無法讀取檔案：'+err.message)}
 };
