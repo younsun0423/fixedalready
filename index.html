@@ -769,23 +769,20 @@ function fitHits(hits){
 }
 function findOneBySecNo(sec, no){
   const ns=norm(sec||''), nn=norm(no||'');
-  if(!nn) return null; // 地號未輸入時不比對，避免空字串 includes('') 誤中第一筆（圖根點）
-  // 優先：地段 + 地號都相符
-  let hit=items.find(it=>it.kind==='c' && (!ns || it.nsec===ns || norm(it.sec)===ns) && it.key===nn);
+  if(!nn) return null; // 地號未輸入時不比對
+  const sameSec=it=>!ns || it.nsec===ns || norm(it.sec)===ns;
+  // 1) 地段 + 地號完全相符
+  let hit=items.find(it=>it.kind==='c' && sameSec(it) && it.key===nn);
   if(hit) return hit;
-  // 其次：只比對地號（且地段相同或地段空白）
-  hit=items.find(it=>it.kind==='c' && it.key===nn && (!ns || it.nsec===ns || norm(it.sec)===ns || !it.nsec));
+  // 2) 有填地段時，圖根點也必須屬於同一地段，且名稱完全相符（不做模糊比對，避免跳到別段的點）
+  hit=items.find(it=>it.kind==='p' && sameSec(it) && it.key===nn);
   if(hit) return hit;
-  // 再其次：地號包含、或以地號搜尋
-  hit=items.find(it=>it.kind==='c' && it.key.includes(nn) && (!ns || it.nsec===ns || norm(it.sec)===ns));
-  if(hit) return hit;
-  // 圖根點：名稱相符
-  hit=items.find(it=>it.kind==='p' && (it.key===nn || it.key.includes(nn)));
-  if(hit) return hit;
-  // 最後用既有搜尋
-  const q=[sec,no].filter(Boolean).join(' ');
-  const r=search(q);
-  return r[0]||null;
+  // 3) 沒填地段：只有在全部資料中「唯一」相符時才採用，有多筆同號就不猜
+  if(!ns){
+    const all=items.filter(it=>it.key===nn);
+    if(all.length===1) return all[0];
+  }
+  return null;
 }
 
 /** 從案件定位到地圖 */
@@ -863,8 +860,8 @@ function openCaseForm(prefill){
   window._caseLat=prefill?.lat!=null?prefill.lat:null;
   window._caseLng=prefill?.lng!=null?prefill.lng:null;
   // 有地段地號但尚無座標時，嘗試從地籍自動帶入
-  if((prefill?.sec||prefill?.no) && (window._caseLat==null)){
-    autoFillLocFromCadastral(false);
+  if(prefill?.sec||prefill?.no){
+    autoFillLocFromCadastral(false); // 找得到就以本機地籍座標覆蓋；找不到則保留原座標
   }
   $('#cform').style.display='block';
   $('#cform').scrollIntoView({behavior:'smooth',block:'nearest'});
@@ -910,9 +907,10 @@ function openGMapsNav(lat,lng,label){
   window.open(url,'_blank');
 }
 function getCaseCoords(c){
-  if(c && c.lat!=null && c.lng!=null) return {lat:+c.lat,lng:+c.lng};
+  // 以本機已匯入的地籍資料為準（匯入的案件所帶座標可能來自別人的資料或舊版錯誤比對）
   const it=findItemBySecNo(c?.sec,c?.no);
   if(it && it.center) return {lat:it.center.lat,lng:it.center.lng};
+  if(c && c.lat!=null && c.lng!=null) return {lat:+c.lat,lng:+c.lng};
   return null;
 }
 function renderCaseList(){
@@ -997,14 +995,15 @@ $('#cfloc').onclick=()=>{
   if(el) el.addEventListener('blur',()=>autoFillLocFromCadastral(false));
 });
 $('#cfnav').onclick=()=>{
-  if(window._caseLat!=null && window._caseLng!=null){
-    openGMapsNav(window._caseLat, window._caseLng, ($('#cf_sec').value+' '+$('#cf_no').value).trim());
-    return;
-  }
   const sec=$('#cf_sec').value.trim(), no=$('#cf_no').value.trim();
+  // 先以目前輸入的地段地號重新比對本機地籍（避免用到舊的或匯入帶來的錯誤座標）
   const it=findItemBySecNo(sec, no);
   if(it && it.center){
     openGMapsNav(it.center.lat, it.center.lng, (it.sec||'')+' '+(it.name||''));
+    return;
+  }
+  if(window._caseLat!=null && window._caseLng!=null){
+    openGMapsNav(window._caseLat, window._caseLng, (sec+' '+(parseNos(no)[0]||'')).trim());
     return;
   }
   const loc=$('#cf_loc').value.trim();
