@@ -768,18 +768,30 @@ function fitHits(hits){
   if(b)map.fitBounds(b,{padding:[60,60],maxZoom:20,animate:false});
 }
 function findOneBySecNo(sec, no){
-  const ns=norm(sec||''), nn=norm(no||'');
-  if(!nn) return null; // 地號未輸入時不比對
-  const sameSec=it=>!ns || it.nsec===ns || norm(it.sec)===ns;
-  // 1) 地段 + 地號完全相符
-  let hit=items.find(it=>it.kind==='c' && sameSec(it) && it.key===nn);
+  const ns=norm(sec||''), nn0=norm(no||'');
+  if(!nn0) return null; // 地號未輸入時不比對
+  const nk=x=>String(x||'').replace(/地?號$/,'');
+  const nn=nk(nn0);
+  // 地段容許寫法不同：「富民」對「富民段」、「台東縣富民段」對「富民段」都算同一段
+  const secOK=it=>!ns || it.nsec===ns || (it.nsec&&(it.nsec.includes(ns)||ns.includes(it.nsec)));
+  // 地號容許：449 = 449-0 = 449地號（但 449 不等於 449-1、也不等於 1449）
+  const noOK=it=>{const k=nk(it.key);return k===nn||k===nn+'-0'||nk(nn0)===k+'-0'};
+  // 沒填地段：全資料中只有一筆相符才採用，多筆同號就不猜
+  if(!ns){const all=items.filter(noOK);return all.length===1?all[0]:null}
+  // 1) 同地段的地號
+  let hit=items.find(it=>it.kind==='c' && secOK(it) && noOK(it));
   if(hit) return hit;
-  // 2) 有填地段時，圖根點也必須屬於同一地段，且名稱完全相符（不做模糊比對，避免跳到別段的點）
-  hit=items.find(it=>it.kind==='p' && sameSec(it) && it.key===nn);
+  // 2) 同地段的圖根點（名稱須完全相符）
+  hit=items.find(it=>it.kind==='p' && secOK(it) && noOK(it));
   if(hit) return hit;
-  // 3) 沒填地段：只有在全部資料中「唯一」相符時才採用，有多筆同號就不猜
-  if(!ns){
-    const all=items.filter(it=>it.key===nn);
+  // 2b) 圖根點的「地段」多半取自檔名，常與案件地段不同；名稱含英文字母（如 A12）且全資料唯一時可採用
+  const pts=items.filter(it=>it.kind==='p' && noOK(it) && !/^[\d-]+$/.test(it.key));
+  if(pts.length===1) return pts[0];
+  // 3) 地段在已匯入資料中完全不存在時，只有「全資料唯一相符」才採用；
+  //    地段存在但找不到該地號時，不亂猜，避免跳到別段
+  const secKnown=items.some(secOK);
+  if(!secKnown){
+    const all=items.filter(it=>noOK(it));
     if(all.length===1) return all[0];
   }
   return null;
