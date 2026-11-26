@@ -150,7 +150,7 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px}
     <h2 style="margin:0">案件日曆</h2>
     <button id="cclose">關閉</button>
   </div>
-  <p style="margin-top:0">記錄每日案件類型、地段地號、申請人、位置。可匯出 CSV／ICS 分享給組員，或整包匯入。</p>
+  <p style="margin-top:0">記錄每日案件類型、地段地號、申請人、位置。可匯出 JSON 分享給組員，或整包匯入。</p>
 
   <div class="cal-head">
     <button id="cprev">‹</button>
@@ -237,14 +237,12 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px}
 
   <details style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">
     <summary style="cursor:pointer;font-size:15px;font-weight:700;padding:4px 0">分享給組員</summary>
-    <p>按「匯出案件 JSON」把全部案件存成 .json 檔傳給組員，他們按「匯入」就會把你的案件加進自己的日曆（只新增或更新，不會蓋掉他們原有的案件）。也支援 CSV、ICS、完整資料包。</p>
+    <p>按「匯出案件 JSON」把全部案件存成 .json 檔傳給組員，他們按「匯入」就會把你的案件加進自己的日曆（只新增或更新，不會蓋掉他們原有的案件）。同一個「匯入」按鈕也可以匯入完整資料包（含地圖資料）和舊的 CSV、ICS 檔。</p>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
       <button id="cexpJson" class="on">匯出案件 JSON</button>
       <button id="cexpPt">匯出圖根現況</button>
-      <button id="cexpCsv">匯出 CSV</button>
-      <button id="cexpIcs">匯出 ICS 日曆</button>
       <button id="cexpAll">匯出完整資料包</button>
-      <button id="cimp">匯入 JSON / CSV / ICS</button>
+      <button id="cimp">匯入（案件／圖根現況／完整資料包）</button>
       <button id="cclr" style="color:#ff9a8f">清除所有案件</button>
     </div>
     <input id="cfile" type="file" accept=".json,.csv,.txt,.ics" hidden>
@@ -1152,36 +1150,6 @@ function download(name,blob){
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),5000);
 }
-$('#cexpCsv').onclick=()=>{
-  if(!cases.length){toast('目前沒有案件');return}
-  const header=['日期','時間','案件類型','地段','地號','申請人','承辦測量員','位置','備註','緯度','經度','點位數量'];
-  const rows=cases.slice().sort((a,b)=>a.date.localeCompare(b.date)||(a.time||'').localeCompare(b.time||'')).map(c=>[c.date,c.time||'',c.type,c.sec,c.no,c.name,c.member,c.loc,c.note,c.lat??'',c.lng??'',c.pts??''].map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(','));
-  const csv='\uFEFF'+header.join(',')+'\n'+rows.join('\n');
-  download(`案件_${new Date().toISOString().slice(0,10)}.csv`,new Blob([csv],{type:'text/csv;charset=utf-8'}));
-  toast('已匯出 CSV，可直接用 Excel / Google 試算表開啟後分享');
-};
-$('#cexpIcs').onclick=()=>{
-  if(!cases.length){toast('目前沒有案件');return}
-  const esc=s=>String(s||'').replace(/\\/g,'\\\\').replace(/;/g,'\\;').replace(/,/g,'\\,').replace(/\n/g,'\\n');
-  let ics='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//地籍現場作業系統//ZH\r\nCALSCALE:GREGORIAN\r\n';
-  cases.forEach(c=>{
-    const dt=c.date.replace(/-/g,'');
-    const tm=(c.time||'09:00').replace(':','')+'00';
-    const sum=`${c.time?c.time+' ':''}${c.type} ${c.sec||''} ${c.no||''}`.trim();
-    const desc=`地號：${c.no||''}\\n點位數量：${c.pts??''}\\n申請人：${c.name||''}\\n承辦測量員：${c.member||''}\\n位置：${c.loc||''}\\n備註：${c.note||''}`;
-    // 有時間用 DATETIME（本地），沒有則用全天
-    let dtstart;
-    if(c.time){
-      dtstart=`DTSTART:${dt}T${tm}`;
-    }else{
-      dtstart=`DTSTART;VALUE=DATE:${dt}`;
-    }
-    ics+=`BEGIN:VEVENT\r\nUID:${c.id}@cadastral\r\nDTSTAMP:${new Date().toISOString().replace(/[-:]/g,'').slice(0,15)}Z\r\n${dtstart}\r\nSUMMARY:${esc(sum)}\r\nDESCRIPTION:${esc(desc)}\r\nEND:VEVENT\r\n`;
-  });
-  ics+='END:VCALENDAR\r\n';
-  download(`案件日曆_${new Date().toISOString().slice(0,10)}.ics`,new Blob([ics],{type:'text/calendar;charset=utf-8'}));
-  toast('已匯出 ICS，可匯入 Google 日曆 / Outlook 後再分享日曆給組員');
-};
 /** 案件 JSON：只含案件，檔案小、方便傳送 */
 $('#cexpJson').onclick=async()=>{
   if(!cases.length){toast('目前沒有案件');return}
@@ -1362,7 +1330,27 @@ $('#cfile').onchange=async e=>{
       if(o.ptStatus){const n=mergePtSt(o.ptStatus);msg+=(msg?'；':'：')+(n?`圖根現況更新 ${n} 點`:'圖根現況沒有需要更新的')}
       if(o.files||o.bundle){
         const fs=o.files||o;
-        for(const k in fs)if(!k.startsWith('__')||k==='__renames'||k==='__deleted')putFile(k,fs[k]);
+        let nf=0;const blocked=[];
+        // 與一般匯入相同：地段名稱與已匯入的其他檔案重複者，整個檔案阻擋
+        const used=new Set();
+        items.forEach(i=>{if(i.kind==='c'){used.add(i.sec);if(i.sec0)used.add(i.sec0)}});
+        for(const k of Object.keys(fs)){
+          if(k.startsWith('__'))continue;
+          const t=fs[k];
+          if(files[k]===t)continue; // 內容完全相同，不必重複匯入
+          let secs=[];
+          try{secs=[...new Set(parseKml(t,k).filter(x=>x.kind==='c').map(x=>x.sec))]}catch(e){}
+          const own=new Set(items.filter(i=>i.kind==='c'&&i.file===k).flatMap(i=>[i.sec,i.sec0]));
+          const dup=secs.filter(x=>used.has(x)&&!own.has(x));
+          if(dup.length){blocked.push(`・${k}：${dup.slice(0,4).join('、')}${dup.length>4?'…':''}`);continue}
+          putFile(k,t);nf++;secs.forEach(x=>used.add(x));
+        }
+        if(nf){for(const k of ['__renames','__deleted'])if(fs[k]!==undefined)putFile(k,fs[k])}
+        if(nf)msg+=(msg?'；':'：')+`地圖資料 ${nf} 個檔案`;
+        if(blocked.length){
+          msg+=(msg?'；':'：')+`已阻擋 ${blocked.length} 個地段重複的檔案`;
+          alert('以下檔案的地段已匯入過或名稱重複，已阻擋匯入：\n'+blocked.join('\n')+'\n\n若是新版本，請先刪除舊的地段／檔案再匯入。');
+        }
         refresh();
       }
       renderCal();renderCaseList();
