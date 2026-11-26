@@ -36,6 +36,14 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px}
 #meB{display:none}
 #me.open #meB{display:block}
 #info h3{margin:0 0 4px;font-size:18px}
+#info .ps{margin:2px 0 8px;padding:8px;border:1px solid #3a4a63;border-radius:8px;background:rgba(255,255,255,.04)}
+#info .ps .pl{font-size:12px;color:#9fb0c8;margin-bottom:5px}
+#info .ps .pb{display:flex;gap:6px;flex-wrap:wrap}
+#info .ps .pb button{flex:1;min-width:64px;padding:7px 4px;font-size:14px}
+#info .ps .pb button.ok.on{background:#35c46a;color:#062b14;border-color:#35c46a}
+#info .ps .pb button.lost.on{background:#777;color:#fff;border-color:#999}
+#info .ps input{width:100%;margin-top:6px;box-sizing:border-box;font-size:14px}
+#info .ps .pt{font-size:12px;color:#9fb0c8;margin-top:4px}
 #info .d{color:var(--acc);font-size:15px;margin-bottom:6px}
 #pbtn{font-size:14px!important}
 #del{color:#ff9a8f}
@@ -305,7 +313,7 @@ function build(list){
   list.forEach(it=>{
     it.on=false;it.lab=0;it.key=norm(it.name);it.nsec=norm(it.sec||'');it.hay=norm(Object.values(it.a).join(' '));it.full=it.nsec+' '+it.key+' '+it.hay;
     if(it.kind==='p'){
-      it.layer=L.featureGroup(it.pts.map(p=>L.circleMarker(p,{radius:7,color:'#fff',weight:2,fillColor:'#ff5a4d',fillOpacity:1})));
+      it.layer=L.featureGroup(it.pts.map(p=>L.circleMarker(p,{radius:7,color:'#fff',weight:2,fillColor:ptColor(it),fillOpacity:1})));
       it.layer.addTo(ptLayer);it.center=L.latLng(it.pts[0]);
     }else{
       if(!it.bounds){let a=90,b=180,c=-90,d=-180;for(const pg of it.polys)for(const r of pg)for(const q of r){if(q[0]<a)a=q[0];if(q[0]>c)c=q[0];if(q[1]<b)b=q[1];if(q[1]>d)d=q[1]}it.bounds=L.latLngBounds([a,b],[c,d])}
@@ -379,7 +387,7 @@ function doSearch(v){
   else if(!r.length){res.innerHTML='<div>找不到符合的地號或圖根點</div>'}
   else r.forEach(it=>{const d=document.createElement('div');
     d.innerHTML=`<span></span><span class="tag ${it.kind}">${it.kind==='p'?'圖根':'地號'}</span>`;
-    d.firstChild.textContent=(it.kind==='c'&&it.sec?it.sec+'  ':'')+(it.name||'(無名稱)');d.onclick=()=>{select(it,true);res.style.display='none';$('#q').blur()};res.appendChild(d)});
+    d.firstChild.textContent=(it.kind==='c'&&it.sec?it.sec+'  ':'')+(it.name||'(無名稱)')+(it.kind==='p'?ptBadge(it):'');d.onclick=()=>{select(it,true);res.style.display='none';$('#q').blur()};res.appendChild(d)});
   res.style.display='block';
 }
 $('#q').addEventListener('keydown',e=>{if(e.key==='Enter'){const r=search(e.target.value);if(r[0]){select(r[0],true);res.style.display='none';e.target.blur()}}});
@@ -394,6 +402,60 @@ function tm2(lat,lng){
   const y=k0*(M+N*tn*(A*A/2+(5-T+9*C+4*C*C)*A**4/24+(61-58*T+T*T+600*C-330*ep)*A**6/720));
   return{n:t3(y.toFixed(6)),e:t3(x.toFixed(6))};
 }
+/* ---------- 圖根點現況註記（存在／遺失／損毀） ---------- */
+let ptst={}; // { '地段|點名': {s:'ok'|'lost'|'dmg', t:時間ISO, n:備註} }
+const PT_S={ok:['✔ 存在','#35c46a'],lost:['✖ 遺失','#777777']};
+const fixPt=o=>{for(const k in o){if(o[k]&&o[k].s==='dmg')o[k].s='lost'}return o}; // 舊版「損毀」併入「遺失」
+function ptKey(it){return (it.sec||'')+'|'+(it.name||'')}
+function loadPtSt(){try{ptst=fixPt(JSON.parse(files.__ptstatus||'{}'))}catch(e){ptst={}}}
+function savePtSt(){files.__ptstatus=JSON.stringify(ptst);dbSet('__ptstatus',files.__ptstatus)}
+function ptColor(it){const r=ptst[ptKey(it)];return r&&PT_S[r.s]?PT_S[r.s][1]:'#ff5a4d'}
+function paintPt(it){if(it.layer)it.layer.eachLayer(l=>l.setStyle&&l.setStyle({fillColor:ptColor(it)}))}
+function paintAllPt(){items.forEach(it=>{if(it.kind==='p')paintPt(it)})}
+function ptBadge(it){const r=ptst[ptKey(it)];return r&&PT_S[r.s]?' '+PT_S[r.s][0].split(' ')[0]:''}
+/** 合併別人傳來的現況：同一點以較新的時間為準 */
+function mergePtSt(o){
+  let n=0;
+  if(o&&typeof o==='object'){fixPt(o);for(const k in o){
+    const r=o[k];if(!r||!PT_S[r.s])continue;
+    const cur=ptst[k];
+    if(!cur||String(r.t||'')>String(cur.t||'')){ptst[k]={s:r.s,t:r.t||new Date().toISOString(),n:r.n||''};n++}
+  }}
+  if(n){savePtSt();paintAllPt()}
+  return n;
+}
+function fmtT(t){const d=new Date(t);if(isNaN(d))return '';const z=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}`}
+function buildPtStatus(it){
+  const box=document.createElement('div');box.className='ps';
+  const key=ptKey(it);
+  const lab=document.createElement('div');lab.className='pl';lab.textContent='現場現況（點錯可改點另一個，或按「清除記錄」）';box.appendChild(lab);
+  const row=document.createElement('div');row.className='pb';box.appendChild(row);
+  const inp=document.createElement('input');inp.type='text';inp.placeholder='備註（選填，例如：被道路改建覆蓋）';
+  const pt=document.createElement('div');pt.className='pt';
+  const clr=document.createElement('button');clr.type='button';clr.textContent='↩ 清除記錄（回到未記錄）';clr.style.cssText='width:100%;margin-top:6px;padding:6px;font-size:13px';
+  clr.onclick=()=>{delete ptst[key];savePtSt();paintPt(it);sync();adj();toast(`已清除「${it.name}」的現況記錄`)};
+  const sync=()=>{
+    const r=ptst[key];
+    row.querySelectorAll('button').forEach(b=>b.classList.toggle('on',!!r&&r.s===b.dataset.s));
+    inp.value=r?(r.n||''):'';
+    inp.style.display=r?'':'none';clr.style.display=r?'':'none';
+    pt.textContent=r?`最後記錄：${fmtT(r.t)}`:'尚未記錄';
+  };
+  Object.keys(PT_S).forEach(k=>{
+    const b=document.createElement('button');b.type='button';b.className=k;b.dataset.s=k;b.textContent=PT_S[k][0];
+    b.onclick=()=>{
+      if(ptst[key]&&ptst[key].s===k){delete ptst[key]} // 再點一次取消記錄
+      else ptst[key]={s:k,t:new Date().toISOString(),n:(ptst[key]&&ptst[key].n)||''};
+      savePtSt();paintPt(it);sync();adj();
+      toast(ptst[key]?`已記錄「${it.name}」：${PT_S[k][0]}`:`已取消「${it.name}」的現況記錄`);
+    };
+    row.appendChild(b);
+  });
+  inp.onchange=()=>{const r=ptst[key];if(!r)return;r.n=inp.value.trim();r.t=new Date().toISOString();savePtSt();sync()};
+  box.appendChild(inp);box.appendChild(clr);box.appendChild(pt);sync();
+  return box;
+}
+
 function select(it,zoom){
   sel=it;
   if(it.kind==='c')showSel(it);
@@ -401,6 +463,7 @@ function select(it,zoom){
   const ib=$('#ib');ib.innerHTML='';
   const h=document.createElement('h3');h.textContent=(it.kind==='p'?'圖根點 ':(it.sec?it.sec+' ':'')+'地號 ')+(it.name||'');ib.appendChild(h);
   const d=document.createElement('div');d.className='d';d.id='dist';ib.appendChild(d);
+  if(it.kind==='p')ib.appendChild(buildPtStatus(it));
   const isC=k=>/座標|坐標|^[nexy]$|^[ne][\s_]?(coord)|^(北|東|縱|橫)|twd97|tm2|northing|easting/i.test(k.trim());
   let cr=Object.entries(it.a).filter(([k,v])=>isC(k)&&v);
   let rows=Object.entries(it.a).filter(([k])=>!isC(k)||!it.a[k]);
@@ -693,7 +756,7 @@ $('#ok').onclick=async()=>{
   // 全部成功就自動關閉匯入視窗；若還有錯誤檔案則保持開啟方便處理
   if(!pending.length) $('#panel').style.display='none';
 };
-$('#clr').onclick=async()=>{if(confirm('清除已匯入的所有資料？')){files={};await dbClear();refresh();toast('已清除')}};
+$('#clr').onclick=async()=>{if(confirm('清除已匯入的所有資料？')){files={};await dbClear();savePtSt();refresh();toast('已清除')}};
 
 /* ========== 案件日曆模組 ========== */
 let cases=[]; // {id, date, type, sec, no, name, member, loc, note, created}
@@ -1123,7 +1186,7 @@ $('#cexpJson').onclick=async()=>{
   if(!cases.length){toast('目前沒有案件');return}
   const d=new Date(),z=n=>String(n).padStart(2,'0');
   const name=`案件_${d.getFullYear()}${z(d.getMonth()+1)}${z(d.getDate())}.json`;
-  const blob=new Blob([JSON.stringify({caseExport:1,exported:d.toISOString(),cases},null,2)],{type:'application/json'});
+  const blob=new Blob([JSON.stringify({caseExport:1,exported:d.toISOString(),cases,ptStatus:ptst},null,2)],{type:'application/json'});
   // 手機優先開啟系統分享選單（可直接選 LINE 或「存到檔案」），不支援時改為下載
   try{
     const file=new File([blob],name,{type:'application/json'});
@@ -1157,7 +1220,7 @@ function mergeCases(list){
 $('#cexpAll').onclick=()=>{
   const d=new Date(),z=n=>String(n).padStart(2,'0');
   const name=`完整資料包_${d.getFullYear()}${z(d.getMonth()+1)}${z(d.getDate())}.json`;
-  download(name,new Blob([JSON.stringify({bundle:1,files,cases},null,2)],{type:'application/json'}));
+  download(name,new Blob([JSON.stringify({bundle:1,files,cases,ptStatus:ptst},null,2)],{type:'application/json'}));
   toast('已匯出完整資料包（地圖資料 + 案件）');
 };
 $('#cimp').onclick=()=>$('#cfile').click();
@@ -1278,6 +1341,7 @@ $('#cfile').onchange=async e=>{
         const dts=list.map(c=>c&&c.date).filter(Boolean).sort();
         if(r.add&&dts.length){selDate=dts[0];const d0=new Date(selDate);calY=d0.getFullYear();calM=d0.getMonth()}
       }
+      if(o.ptStatus){const n=mergePtSt(o.ptStatus);if(n)msg+=`；圖根現況更新 ${n} 點`}
       if(o.files||o.bundle){
         const fs=o.files||o;
         for(const k in fs)if(!k.startsWith('__')||k==='__renames'||k==='__deleted')putFile(k,fs[k]);
@@ -1296,6 +1360,7 @@ $('#cclr').onclick=()=>{if(confirm('確定清除所有案件記錄？')){cases=[
   if(pe){try{emb=JSON.parse(pe.textContent)}catch(e){}}
   files={...emb,...await dbAll()};
   loadCases();
+  loadPtSt();
   loadSettings();
   if(Object.keys(files).filter(k=>!k.startsWith('__')).length)refresh();
   else $('#panel').style.display='flex';
