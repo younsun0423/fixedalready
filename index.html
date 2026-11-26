@@ -240,6 +240,7 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px}
     <p>按「匯出案件 JSON」把全部案件存成 .json 檔傳給組員，他們按「匯入」就會把你的案件加進自己的日曆（只新增或更新，不會蓋掉他們原有的案件）。也支援 CSV、ICS、完整資料包。</p>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
       <button id="cexpJson" class="on">匯出案件 JSON</button>
+      <button id="cexpPt">匯出圖根現況</button>
       <button id="cexpCsv">匯出 CSV</button>
       <button id="cexpIcs">匯出 ICS 日曆</button>
       <button id="cexpAll">匯出完整資料包</button>
@@ -1198,6 +1199,23 @@ $('#cexpJson').onclick=async()=>{
   download(name,blob);
   toast(`已匯出 ${cases.length} 筆案件（${name}）`);
 };
+/** 只匯出圖根現況（存在／遺失），不含案件 */
+$('#cexpPt').onclick=async()=>{
+  const n=Object.keys(ptst).length;
+  if(!n){toast('目前沒有任何圖根現況記錄');return}
+  const d=new Date(),z=x=>String(x).padStart(2,'0');
+  const name=`圖根現況_${d.getFullYear()}${z(d.getMonth()+1)}${z(d.getDate())}.json`;
+  const blob=new Blob([JSON.stringify({ptExport:1,exported:d.toISOString(),ptStatus:ptst},null,2)],{type:'application/json'});
+  try{
+    const file=new File([blob],name,{type:'application/json'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){
+      await navigator.share({files:[file],title:'圖根現況'});
+      toast(`已開啟分享（${n} 個圖根點記錄）`);return;
+    }
+  }catch(e){if(e&&e.name==='AbortError')return}
+  download(name,blob);
+  toast(`已匯出 ${n} 個圖根點現況（${name}）`);
+};
 /** 合併匯入：同 id 者更新，內容完全相同者略過，其餘新增；不會刪掉原有案件 */
 function mergeCases(list){
   let add=0,upd=0,skip=0;
@@ -1341,7 +1359,7 @@ $('#cfile').onchange=async e=>{
         const dts=list.map(c=>c&&c.date).filter(Boolean).sort();
         if(r.add&&dts.length){selDate=dts[0];const d0=new Date(selDate);calY=d0.getFullYear();calM=d0.getMonth()}
       }
-      if(o.ptStatus){const n=mergePtSt(o.ptStatus);if(n)msg+=`；圖根現況更新 ${n} 點`}
+      if(o.ptStatus){const n=mergePtSt(o.ptStatus);msg+=(msg?'；':'：')+(n?`圖根現況更新 ${n} 點`:'圖根現況沒有需要更新的')}
       if(o.files||o.bundle){
         const fs=o.files||o;
         for(const k in fs)if(!k.startsWith('__')||k==='__renames'||k==='__deleted')putFile(k,fs[k]);
