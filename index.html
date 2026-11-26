@@ -100,6 +100,47 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--acc);color:#111;padding:10px 18px;border-radius:8px;font-size:14px;z-index:2000;display:none;max-width:90vw;text-align:center}
 .badge{display:inline-block;background:var(--pt);color:#fff;font-size:11px;padding:1px 6px;border-radius:4px;margin-left:4px}
 #addFromMap{margin-top:8px}
+
+/* ===== 按鈕優化：統一尺寸、觸控回饋、主要／次要／危險樣式 ===== */
+:root{--danger:#ff8a7e;--danger-line:#7a3f3a}
+button,.btn{min-height:44px;border-radius:10px;font-weight:600;line-height:1.2;display:inline-flex;align-items:center;justify-content:center;gap:6px;touch-action:manipulation;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;transition:background .15s,border-color .15s,transform .08s,box-shadow .15s}
+button:hover{background:#233a36;border-color:#4d7069}
+button:active{transform:scale(.96);filter:brightness(.92)}
+button.on:hover{background:#ffdc5e;border-color:#ffdc5e}
+button.ok:hover{background:#63d9b2;border-color:#63d9b2}
+button:disabled{opacity:.45;cursor:not-allowed;transform:none;filter:none}
+/* 危險操作：刪除／清除 */
+#del,#clr,#cclr,#pcancel,.cdel,.fr button{color:var(--danger)!important;border-color:var(--danger-line)}
+#del:hover,#clr:hover,#cclr:hover,#pcancel:hover,.cdel:hover,.fr button:hover{background:#3a2422;border-color:var(--danger)}
+/* 頂部列 */
+.row button{flex:none;min-width:64px}
+#qbtn{background:var(--acc);color:#111;border-color:var(--acc)}
+#qbtn:hover{background:#ffdc5e;border-color:#ffdc5e}
+/* 右側圓形工具鈕 */
+.side{gap:8px}
+.side button{width:48px;height:48px;min-height:48px;padding:0;font-size:20px;border-radius:50%;background:rgba(28,46,43,.94);box-shadow:0 2px 8px rgba(0,0,0,.45)}
+.side button.on{background:var(--acc);color:#111}
+#pbtn{font-size:12px!important}
+#clrsel{font-size:11px!important;line-height:1.15!important;background:rgba(58,36,34,.95)!important}
+/* 資訊框 */
+#info{border-radius:14px;box-shadow:0 -4px 18px rgba(0,0,0,.45)}
+#x{width:36px;height:36px;min-height:36px;padding:0;border-radius:50%;font-size:16px}
+#ixt{right:48px;top:6px;min-height:36px;padding:0 12px;font-size:13px;border-radius:18px}
+.brow{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.brow>button{flex:1 1 0;min-width:84px}
+#addFromMap{margin-top:0}
+#info .ps .pb button{min-height:44px;padding:6px 4px}
+#info .ps .pb button:not(.on){background:#1c2e2b}
+/* 面板與日曆 */
+#cprev,#cnext{width:48px;padding:0;font-size:22px}
+.cal-grid .d{min-height:40px;display:flex;align-items:center;justify-content:center;transition:background .12s,transform .08s}
+.cal-grid .d:active{transform:scale(.92)}
+.case-card .acts{flex-wrap:wrap}
+.case-card .acts button{flex:1 1 0;min-width:52px;min-height:38px;padding:6px 8px;font-size:13px}
+.fr button{min-height:34px;padding:4px 12px;font-size:13px}
+.form-actions button{flex:1 1 0;min-width:96px}
+#cexpJson,#cexpPt,#cexpAll,#cimp,#cclr{flex:1 1 150px;white-space:normal}
+#cfsave,#set_save,#ok{font-size:16px}
 </style>
 </head>
 <body>
@@ -203,7 +244,7 @@ select{flex:1;min-width:0;font-size:15px;padding:9px 10px}
       <label style="flex:2">申請人姓名<input type="text" id="cf_name" placeholder="申請人"></label>
     </div>
     <div class="form-row">
-      <label style="flex:2">導航（座標僅來自已匯入地籍，不臆造）<input type="hidden" id="cf_loc"><button type="button" id="cfnav" style="width:100%;margin-top:4px">🧭 Google 導航</button></label>
+      <label style="flex:2">導航（座標僅來自已匯入地籍，不臆造）<input type="hidden" id="cf_loc"><span style="display:flex;gap:8px;margin-top:4px"><button type="button" id="cfnav" style="flex:1">🧭 Google 導航</button><button type="button" id="cfsv" style="flex:1">👁 街景</button></span></label>
     </div>
     <div class="form-row">
       <label style="flex:2">備註<textarea id="cf_note" rows="2" placeholder="現場注意事項、聯絡電話等"></textarea></label>
@@ -486,7 +527,7 @@ function select(it,zoom){
 
   // 從地圖加入案件 + 導航
   const btnRow=document.createElement('div');
-  btnRow.style.cssText='display:flex;gap:8px;margin-top:8px;flex-wrap:wrap';
+  btnRow.className='brow';
   const addBtn=document.createElement('button');
   addBtn.id='addFromMap';
   addBtn.className='on';
@@ -517,8 +558,12 @@ function select(it,zoom){
     if(it.center) openGMapsNav(it.center.lat, it.center.lng, (it.sec?it.sec+' ':'')+(it.name||''));
     else toast('此項目沒有座標');
   };
+  const svBtn=document.createElement('button');
+  svBtn.textContent='街景';
+  svBtn.onclick=()=>{if(it.center)openStreetView(it.center.lat,it.center.lng);else toast('此項目沒有座標')};
   btnRow.appendChild(addBtn);
   btnRow.appendChild(navBtn);
+  btnRow.appendChild(svBtn);
   ib.appendChild(btnRow);
 
   $('#info').style.display='block';setInfoMini(infoMini);dist();adj();
@@ -968,6 +1013,11 @@ function renderCal(){
     grid.appendChild(d);
   }
 }
+/** 開啟 Google 街景（以座標為準；手機會直接開 Google 地圖 App） */
+function openStreetView(lat,lng){
+  if(lat==null||lng==null||isNaN(lat)||isNaN(lng)){toast('沒有座標，無法開啟街景');return}
+  window.open(`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`,'_blank');
+}
 function openGMapsNav(lat,lng,label){
   let url;
   if(lat!=null && lng!=null && !isNaN(lat) && !isNaN(lng)){
@@ -1006,6 +1056,7 @@ function renderCaseList(){
       <div class="acts">
         ${canLocate?'<button data-id="'+c.id+'" class="cloc on">定位</button>':''}
         <button data-id="${c.id}" class="cnav">導航</button>
+        <button data-id="${c.id}" class="csv">街景</button>
         <button data-id="${c.id}" class="cedit">編輯</button>
         <button data-id="${c.id}" class="cdel">刪除</button>
       </div>`;
@@ -1019,6 +1070,11 @@ function renderCaseList(){
     const co=getCaseCoords(c);
     if(co) openGMapsNav(co.lat,co.lng,(c.sec||'')+' '+(c.no||''));
     else openGMapsNav(null,null,c.loc||((c.sec||'')+' '+(parseNos(c.no)[0]||'')));
+  });
+  list.querySelectorAll('.csv').forEach(b=>b.onclick=()=>{
+    const c=cases.find(x=>x.id===b.dataset.id);if(!c)return;
+    const co=getCaseCoords(c);
+    if(co)openStreetView(co.lat,co.lng);else toast('找不到這筆案件的座標，請先匯入對應地籍');
   });
   list.querySelectorAll('.cedit').forEach(b=>b.onclick=()=>{
     const c=cases.find(x=>x.id===b.dataset.id);if(c)openCaseForm(c);
@@ -1068,6 +1124,12 @@ $('#cfloc').onclick=()=>{
   if(el) el.addEventListener('change',()=>autoFillLocFromCadastral(false));
   if(el) el.addEventListener('blur',()=>autoFillLocFromCadastral(false));
 });
+$('#cfsv').onclick=()=>{
+  const it=findItemBySecNo($('#cf_sec').value.trim(), $('#cf_no').value.trim());
+  if(it&&it.center){openStreetView(it.center.lat,it.center.lng);return}
+  if(window._caseLat!=null&&window._caseLng!=null){openStreetView(window._caseLat,window._caseLng);return}
+  toast('請先填好地段地號並確認已匯入對應地籍');
+};
 $('#cfnav').onclick=()=>{
   const sec=$('#cf_sec').value.trim(), no=$('#cf_no').value.trim();
   // 先以目前輸入的地段地號重新比對本機地籍（避免用到舊的或匯入帶來的錯誤座標）
